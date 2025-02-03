@@ -2,7 +2,7 @@
 name = "rs2io"
 version = "0.1.2"
 edition = "2021"
-exclude = ["packet", "macro_utils", "io_macro"]
+exclude = ["macro_utils", "io_macro"]
 authors = ["Mack <https://github.com/heavens>"]
 description = "Types and utilities for processing io with a design heavily focused around the custom protocols used by the popular MMORPG Runescape."
 repository = "https://github.com/heavens"
