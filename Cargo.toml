@@ -10,7 +10,7 @@ keywords = ["IO", "Bytes", "Encoder", "Decoder"]
 rust-version = "1.80.0"
 
 [dependencies]
-rs2io_packet = { path = "./packet" }
+rs2io_packet = { path = "./packet", version = "*" }
 
 [workspace]
 resolver = "2"
