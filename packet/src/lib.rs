@@ -1,6 +1,6 @@
 pub mod bits;
 pub mod bytes;
-mod error;
+pub mod error;
 
 macro_rules! g {
     ($buf:ident, $byte_ty:ty, $conversion:expr) => {{
