@@ -1,0 +1,13 @@
+[package]
+name = "io_macro"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80.0"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+macro_utils = { path = "../macro_utils" }
+quote.workspace = true
+syn.workspace = true

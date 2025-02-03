@@ -1,0 +1,23 @@
+[package]
+name = "rs2io"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mack <https://github.com/heavens>"]
+description = "Types and utilities for processing io with a design heavily focused around the custom protocols used by the popular MMORPG Runescape."
+repository = "https://github.com/heavens"
+keywords = ["IO", "Bytes", "Encoder", "Decoder"]
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/io_macro",
+    "crates/macro_utils",
+    "crates/packet"
+]
+
+[workspace.dependencies.syn]
+version = "2.0.98"
+features = ["full"]
+
+[workspace.dependencies.quote]
+version = "1.0.38"
