@@ -1,1 +1,1 @@
-pub use rs2io_packet as packet;
+pub use super::rs2io_packet as packet;
