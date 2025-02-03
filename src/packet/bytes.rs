@@ -2,7 +2,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Read};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
-use crate::error::{error, PacketError};
+use crate::packet::error::{error, PacketError};
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
@@ -472,24 +472,5 @@ impl Packet {
     /// Allocates an array capable of holding the copied contents of this writer.
     pub fn to_vec(&self) -> Vec<u8> {
         self.bytes.to_vec()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::bytes::Packet;
-
-    #[test]
-    fn test_read() {
-
-        let mut packet = Packet::new(10);
-        packet.p4(100);
-        packet.p4(5);
-        packet.clear();
-        let val = packet.g4().expect("should read bytes");
-        let val2 = packet.g4().expect("should read next byte.");
-
-        let readable = packet.readable();
-        println!("{val}, {val2}, {readable}");
     }
 }
