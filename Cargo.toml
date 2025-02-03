@@ -7,6 +7,7 @@ description = "Types and utilities for processing io with a design heavily focus
 repository = "https://github.com/heavens"
 license = "MIT OR Apache-2.0"
 keywords = ["IO", "Bytes", "Encoder", "Decoder"]
+rust-version = "1.80.0"
 
 [workspace]
 resolver = "2"
@@ -20,9 +21,6 @@ default-members = [
     "macro_utils",
     "packet"
 ]
-
-[dependencies]
-packet = { path = "packet", version = "0.1.0" }
 
 [workspace.dependencies.syn]
 version = "2.0.98"
