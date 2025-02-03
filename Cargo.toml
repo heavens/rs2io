@@ -1,6 +1,6 @@
 [package]
 name = "rs2io"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 exclude = ["packet", "macro_utils", "io_macro"]
 authors = ["Mack <https://github.com/heavens>"]
@@ -27,7 +27,3 @@ features = ["full"]
 
 [workspace.dependencies.quote]
 version = "1.0.38"
-
-[workspace.dependencies.rs2io_packet]
-path = "packet"
-version = "0.1.0"
