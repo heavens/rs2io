@@ -2,6 +2,7 @@
 name = "rs2io"
 version = "0.1.1"
 edition = "2021"
+exclude = ["packet", "macro_utils", "io_macro"]
 authors = ["Mack <https://github.com/heavens>"]
 description = "Types and utilities for processing io with a design heavily focused around the custom protocols used by the popular MMORPG Runescape."
 repository = "https://github.com/heavens"
@@ -9,20 +10,15 @@ license = "MIT OR Apache-2.0"
 keywords = ["IO", "Bytes", "Encoder", "Decoder"]
 rust-version = "1.80.0"
 
-[dependencies]
-rs2io_packet = { path = "./packet", version = "*", optional = true }
-
 [workspace]
 resolver = "2"
 members = [
     "io_macro",
     "macro_utils",
-    "packet"
 ]
 default-members = [
     "io_macro",
     "macro_utils",
-    "packet"
 ]
 
 [workspace.dependencies.syn]
@@ -31,3 +27,7 @@ features = ["full"]
 
 [workspace.dependencies.quote]
 version = "1.0.38"
+
+[workspace.dependencies.rs2io_packet]
+path = "packet"
+version = "0.1.0"
