@@ -288,8 +288,8 @@ impl Packet {
         self.pos += cmp::min(bytes, self.readable());
     }
 
-    /// Returns the reader's current position within the buffer.
-    pub fn read_pos(&self) -> usize {
+    /// Returns the current position within the buffer.
+    pub fn get_pos(&self) -> usize {
         self.pos
     }
 
