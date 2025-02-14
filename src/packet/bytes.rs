@@ -195,7 +195,7 @@ impl Packet {
 
     /// Attempts to return a 24-bit unsigned integer from the reader, incrementing the position by `3` if successful. Otherwise
     /// an error is returned if not enough bytes remain.
-    pub fn get_u24(&mut self) -> Result<usize, PacketError> {
+    pub fn g3(&mut self) -> Result<usize, PacketError> {
         if self.available(3) {
             self.pos += 3;
             Ok((self.bytes[self.pos - 3] as usize) << 16
