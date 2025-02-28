@@ -34,3 +34,32 @@ macro_rules! p {
         $this.write_pos += slice_len;
     }};
 }
+
+#[cfg(test)]
+mod test {
+    use crate::packet::bytes::Packet;
+    use crate::packet::error::PacketError;
+
+    #[test]
+    fn test_read_string() -> Result<(), PacketError> {
+        let str = "hello";
+        let mut packet = Packet::new(str.len() + 1);
+        // Write the str into the packet.
+        packet.pjstr(&str);
+
+        // Set the cursor back to zero to prepare the read.
+        packet.set_pos(0)?;
+
+        // Read a null-terminated string from the packet.
+        assert_eq!(packet.gjstr()?, "hello");
+        Ok(())
+    }
+
+    #[test]
+    fn test_read_smart_int() {
+        let mut packet = Packet::new(4);
+        packet.psmart_u32(20);
+        packet.set_pos(0).unwrap();
+        assert_eq!(20, packet.gsmart_u32().unwrap());
+    }
+}

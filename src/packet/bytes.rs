@@ -68,7 +68,7 @@ impl Packet {
     }
 
     pub(crate) fn check_for_space(&mut self, space: usize) {
-        if self.readable() < space {
+        if self.available_count() < space {
             self.resize(space * 2);
         }
     }
@@ -193,16 +193,16 @@ impl Packet {
         g!(self, 2, u16::from_be_bytes)
     }
 
-    /// Attempts to return a 24-bit unsigned integer from the reader, incrementing the position by `3` if successful. Otherwise
-    /// an error is returned if not enough bytes remain.
+    /// Attempts to return a 24-bit unsigned integer from the reader, incrementing the position by
+    /// `3` if successful. Otherwise, an error is returned if not enough bytes remain.
     pub fn g3(&mut self) -> Result<usize, PacketError> {
-        if self.available(3) {
+        if self.has_available(3) {
             self.pos += 3;
             Ok((self.bytes[self.pos - 3] as usize) << 16
                 | (self.bytes[self.pos - 2] as usize) << 8
                 | self.bytes[self.pos - 1] as usize)
         } else {
-            error(format!("expected at least 3 bytes, but only {} were available", self.readable()))
+            error(format!("expected at least 3 bytes, but only {} were available", self.available_count()))
         }
     }
 
@@ -230,21 +230,36 @@ impl Packet {
         g!(self, 8, u64::from_be_bytes)
     }
 
-    /// Performs a conditional "smart" read, returning a signed short or unsigned byte depending on the value of the
-    /// next readable byte and increasing the position based on the integer type read. Otherwise an error is returned
-    /// if not enough bytes remain.
-    pub fn gsmart(&mut self) -> Result<usize, PacketError> {
+    /// Performs a conditional "smart" read, returning a signed short or unsigned byte depending on
+    /// the value of the next readable byte and increasing the position based on the literal type read.
+    /// Otherwise, an error is returned if not enough bytes remain.
+    pub fn gsmart_u16(&mut self) -> Result<usize, PacketError> {
         if let Some(next) = self.peek() {
             if next > 127 {
-                return self.g2s().map(|value| value as usize);
+                return self.g2s().map(|value| value as usize - 32768);
             }
             return self.g1().map(|value| value as usize);
         }
         error("expected at least one byte for get_smart but none were available.".to_string())
     }
 
-    /// Tries to read a null-terminated string (c-string) from the reader, returning an error if the operation could not complete. The reader
-    /// position is incremented based on the width of the string read.
+    /// Similar to [gsmart_u16](Packet::gsmart_u16), performs a conditional "smart" read, returning
+    /// a signed short or signed int depending on the value of the next readable byte and
+    /// increasing the position based on the literal type read. Otherwise, an error is returned
+    /// if not enough bytes remain.
+    pub fn gsmart_u32(&mut self) -> Result<u32, PacketError> {
+        if let Some(next) = self.peek() {
+            if next & 0x80 == 0 {
+                return self.g2s().map(|value| value as u32 - 16384);
+            }
+            return self.g4s().map(|value| value as u32 - 1073741824);
+        }
+        error("expected at least one byte for get_smart but none were available.".to_string())
+    }
+
+    /// Tries to read a null-terminated string (c-string) from the reader, returning an error if the
+    /// operation could not complete. The reader position is incremented based on the width of the
+    /// string read.
     pub fn gjstr(&mut self) -> Result<String, PacketError> {
         let mut contents = Vec::new();
         while let Some(next) = self.peek() {
@@ -275,7 +290,7 @@ impl Packet {
 
     /// Returns an optional value for the next byte available without incrementing the buffer's position, otherwise returning `None`.
     pub fn peek(&self) -> Option<u8> {
-        if self.readable() == 0 {
+        if self.available_count() == 0 {
             return None;
         }
 
@@ -285,7 +300,7 @@ impl Packet {
     /// Increments the reader position by `count` bytes. If the specified count causes the position to overflow then it's resized to
     /// `remaining`.
     pub fn skip(&mut self, bytes: usize) {
-        self.pos += cmp::min(bytes, self.readable());
+        self.pos += cmp::min(bytes, self.available_count());
     }
 
     /// Returns the current position within the buffer.
@@ -293,44 +308,38 @@ impl Packet {
         self.pos
     }
 
-    /// Returns the amount of readable bytes remaining expressed as `capacity` minus `read_pos`.
-    ///
-    /// ## Safety
-    ///
-    /// This operation is safe from potential would-be overflows and returns a value of
-    /// `0` in the event of one occurring.
-    pub fn readable(&self) -> usize {
-        let (value, overflowed) = self.pos.overflowing_sub(self.pos);
-        if overflowed {
-            return 0;
-        }
-
-        value
-    }
-
-    /// Returns the amount of writable bytes remaining expressed as `capacity` minus `write_pos`.
-    ///
-    /// ## Safety
-    ///
-    /// This operation is safe from potential would-be overflows and returns a value of
-    /// `0` in the event of one occurring.
-    pub fn writable(&self) -> usize {
-        let (value, overflowed) = self.bytes.capacity().overflowing_sub(self.pos);
-        if overflowed {
-            return 0;
-        }
-
-        value
-    }
-
     /// Returns `true` if no readable bytes remain. Shorthand for `self.remaining() == 0`.
     pub fn is_empty(&self) -> bool {
-        self.readable() == 0
+        self.pos >= self.bytes.len()
+    }
+
+    /// Returns the amount of bytes available in the current packet which is determined by
+    /// the following calculation: `capacity - pos`.
+    ///
+    /// # Safety
+    ///
+    /// If an overflow were to occur then a value of `None` is returned indicating so. Otherwise,
+    /// a success value of `Some(n)` is returned where `n` is the amount of bytes available.
+    pub fn available(&self) -> Option<usize> {
+        let (value, overflowed) = self.bytes.capacity().overflowing_sub(self.pos);
+        if overflowed {
+            return None;
+        }
+
+        Some(value)
+    }
+
+    /// Returns the amount of bytes available in the current packet which is determined by
+    /// the following calculation: `capacity - pos`. Unlike [available](Packet::available),
+    /// failure to obtain the amount of bytes, or if overflow were to occur, then a value of
+    /// `0` is returned.
+    pub fn available_count(&self) -> usize {
+        self.available().unwrap_or(0)
     }
 
     /// Returns `true` if at least `count` bytes are remaining in the reader.
-    pub fn available(&self, count: usize) -> bool {
-        self.readable() >= count
+    pub fn has_available(&self, count: usize) -> bool {
+        self.available().is_some_and(|available| available >= count)
     }
 }
 
@@ -430,6 +439,9 @@ impl Packet {
         self.p1(0);
     }
 
+    /// Similar to [gjstr](Packet::gjstr), reads a null-terminated string from the packet with
+    /// the main difference being the terminator char is inserted at the start of the string
+    /// instead of the end.
     pub fn gjstr2(&mut self, value: impl AsRef<str>) {
         self.p1(0);
         self.pjstr(value);
@@ -437,11 +449,21 @@ impl Packet {
 
     /// Conditionally writes a signed byte if `n <= 127` otherwise writes an unsigned short. The
     /// position is incremented relative to the type written.
-    pub fn psmart(&mut self, value: usize) {
+    pub fn psmart_u16(&mut self, value: usize) {
         if value <= 127 {
             self.p1s(value as i8);
         } else {
             self.p2(value as u16);
+        }
+    }
+
+    /// Writes a value into the packet through the usage of [p2](Packet::p2) or [p4](Packet::p4).
+    /// The packing put operation is contingent on the value being written.
+    pub fn psmart_u32(&mut self, value: isize) {
+        if value >= -16384 && value <= 16383 {
+            self.p2(value as u16 + 0x4000);
+        } else if value >= 1073741824 && value <= 1073741823 {
+            self.p4s(-2147483648 | (value + 1073741824) as i32);
         }
     }
 

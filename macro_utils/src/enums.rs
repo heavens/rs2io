@@ -2,6 +2,7 @@ use syn::__private::{Span, TokenStream};
 use syn::{parse_macro_input, Data, DeriveInput};
 use syn::__private::quote::quote;
 
+#[allow(dead_code)]
 pub fn derive_enum_variant_meta(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let variants = match &ast.data {
