@@ -7,7 +7,7 @@ authors = ["Mack <https://github.com/heavens>"]
 description = "Types and utilities for processing io with a design heavily focused around the custom protocols used by the popular MMORPG Runescape."
 repository = "https://github.com/heavens"
 license = "MIT OR Apache-2.0"
-keywords = ["IO", "Bytes", "Encoder", "Decoder"]
+keywords = ["IO", "Bytes", "RuneScape", "GameDev", "Games"]
 rust-version = "1.80.0"
 
 [workspace]
