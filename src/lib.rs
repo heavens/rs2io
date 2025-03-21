@@ -51,7 +51,11 @@ mod test {
         packet.set_pos(0)?;
 
         // Read a null-terminated string from the packet.
-        assert_eq!(packet.gjstr()?, "hello");
+        println!("pos1 {}", packet.get_pos());
+        let value = packet.gjstr()?;
+        println!("pos2 {}", packet.get_pos());
+        println!("len {}, {:?}", packet.len(), value);
+        assert_eq!(value, "hello");
         Ok(())
     }
 

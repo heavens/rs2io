@@ -270,9 +270,8 @@ impl Packet {
             contents.push(self.g1()?);
         }
 
-        let str_len = contents.len();
         if let Ok(string) = String::from_utf8(contents) {
-            self.pos += str_len + 1;
+            self.pos += 1;
             Ok(string)
         } else {
             error("attempted to read bytes that are not of valid utf-8 encoding.".to_string())
@@ -321,7 +320,7 @@ impl Packet {
     /// If an overflow were to occur then a value of `None` is returned indicating so. Otherwise,
     /// a success value of `Some(n)` is returned where `n` is the amount of bytes available.
     pub fn available(&self) -> Option<usize> {
-        let (value, overflowed) = self.bytes.capacity().overflowing_sub(self.pos);
+        let (value, overflowed) = self.len().overflowing_sub(self.pos);
         if overflowed {
             return None;
         }
