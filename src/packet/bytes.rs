@@ -7,7 +7,7 @@ use crate::packet::error::{error, PacketError};
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
 
-        let cap = $this.len();
+        let cap = $this.capacity();
         let pos = $this.pos;
         if pos + $value_size > cap {
             return error(
@@ -28,7 +28,7 @@ macro_rules! p {
     ($this:tt,  $value:tt) => {{
         let pos = $this.pos;
         let slice_len = $value.len();
-        let buf_len = $this.bytes.len();
+        let buf_len = $this.bytes.capacity();
         if pos + slice_len >= buf_len {
             $this.bytes.resize((slice_len + buf_len) * 2, 0u8);
         }
@@ -133,7 +133,7 @@ impl Index<RangeFrom<usize>> for Packet {
 
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
         let start = index.start;
-        if start >= self.len() {
+        if start >= self.capacity() {
             return &[];
         }
         &self.deref()[start..]
@@ -403,7 +403,7 @@ impl Packet {
 
     pub fn p3(&mut self, value: u32) {
         // Expand the underlying buffer to make room for at least 3 more bytes.
-        if self.pos + 3 >= self.len() {
+        if self.pos + 3 >= self.capacity() {
             self.resize(3);
         }
 
@@ -482,8 +482,14 @@ impl Packet {
 
     /// Returns the capacity of the underlying buffer denoting the amount of items the buffer is
     /// capable of holding.
-    pub fn len(&self) -> usize {
+    pub fn capacity(&self) -> usize {
         self.bytes.capacity()
+    }
+
+    /// Returns the total amount of bytes contained in the underlying buffer, not accounting for the
+    /// current position within the buffer.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
     }
 
     /// Writes a raw byte slice to the buffer. The position is incremented based on the len of the slice written.
