@@ -1,5 +1,6 @@
 use std::cmp::min;
 use std::io;
+use crate::packet::error::PacketError;
 
 /// A specialized buffer that allows for reading and writing data at bit-level granularity
 pub struct PacketBit {
