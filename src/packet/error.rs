@@ -1,8 +1,16 @@
+use std::io;
 use std::io::{Error, ErrorKind};
 
 #[derive(Debug)]
 pub enum PacketError {
     Io(Error),
+    Other(String),
+}
+
+impl From<Error> for PacketError {
+    fn from(error: Error) -> Self {
+        PacketError::Io(error)
+    }
 }
 
 impl From<Error> for PacketError {

@@ -37,6 +37,7 @@ macro_rules! p {
 
 #[cfg(test)]
 mod test {
+    use crate::packet::bits::PacketBit;
     use crate::packet::bytes::Packet;
     use crate::packet::error::PacketError;
 
@@ -65,5 +66,16 @@ mod test {
         packet.psmart_u32(20);
         packet.set_pos(0).unwrap();
         assert_eq!(20, packet.gsmart_u32().unwrap());
+    }
+
+    #[test]
+    fn test_read_bits() {
+        let mut packet = Packet::new(5);
+        let mut bits = PacketBit::new();
+        bits.write_bits(20, 18);
+        let value = bits.read_bits(18).unwrap();
+        assert_eq!(20, value);
+        // bits.writ(&mut packet);
+        println!("{:?}", bits.as_slice());
     }
 }
