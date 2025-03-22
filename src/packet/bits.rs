@@ -2,7 +2,7 @@ use std::cmp::min;
 use std::io;
 use crate::packet::error::PacketError;
 
-/// A specialized buffer that allows for reading and writing data at bit-level granularity
+/// A specialized buffer that allows for reading and writing data at bit-level granularity.
 pub struct PacketBit {
     /// Current write byte position in buffer
     writer_byte_pos: usize,
@@ -60,26 +60,26 @@ impl PacketBit {
 
     /// Write a boolean value (1 bit)
     pub fn write_bool(&mut self, value: bool) -> io::Result<()> {
-        self.write_bits(if value { 1 } else { 0 }, 1)
+        self.pbits(if value { 1 } else { 0 }, 1)
     }
 
     /// Write an unsigned byte value (8 bits)
     pub fn write_u8(&mut self, value: u8) -> io::Result<()> {
-        self.write_bits(value as u32, 8)
+        self.pbits(value as u32, 8)
     }
 
     /// Write an unsigned 16-bit value
     pub fn write_u16(&mut self, value: u16) -> io::Result<()> {
-        self.write_bits(value as u32, 16)
+        self.pbits(value as u32, 16)
     }
 
     /// Write an unsigned 32-bit value
     pub fn write_u32(&mut self, value: u32) -> io::Result<()> {
-        self.write_bits(value, 32)
+        self.pbits(value, 32)
     }
 
     /// Write arbitrary number of bits (up to 32) from a value
-    pub fn write_bits(&mut self, value: u32, num_bits: usize) -> io::Result<()> {
+    pub fn pbits(&mut self, value: u32, num_bits: usize) -> io::Result<()> {
         if num_bits == 0 || num_bits > 32 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -124,26 +124,26 @@ impl PacketBit {
 
     /// Read a boolean value (1 bit)
     pub fn read_bool(&mut self) -> io::Result<bool> {
-        self.read_bits(1).map(|value| value == 1)
+        self.gbits(1).map(|value| value == 1)
     }
 
     /// Read an unsigned byte value (8 bits)
     pub fn read_u8(&mut self) -> io::Result<u8> {
-        self.read_bits(8).map(|value| value as u8)
+        self.gbits(8).map(|value| value as u8)
     }
 
     /// Read an unsigned 16-bit value
     pub fn read_u16(&mut self) -> io::Result<u16> {
-        self.read_bits(16).map(|value| value as u16)
+        self.gbits(16).map(|value| value as u16)
     }
 
     /// Read an unsigned 32-bit value
     pub fn read_u32(&mut self) -> io::Result<u32> {
-        self.read_bits(32)
+        self.gbits(32)
     }
 
     /// Read arbitrary number of bits (up to 32) into a u32 value
-    pub fn read_bits(&mut self, num_bits: usize) -> io::Result<u32> {
+    pub fn gbits(&mut self, num_bits: usize) -> io::Result<u32> {
         if num_bits == 0 || num_bits > 32 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,

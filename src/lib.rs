@@ -72,8 +72,8 @@ mod test {
     fn test_read_bits() {
         let mut packet = Packet::new(5);
         let mut bits = PacketBit::new();
-        bits.write_bits(20, 18);
-        let value = bits.read_bits(18).unwrap();
+        bits.pbits(20, 18);
+        let value = bits.gbits(18).unwrap();
         assert_eq!(20, value);
         // bits.writ(&mut packet);
         println!("{:?}", bits.as_slice());
