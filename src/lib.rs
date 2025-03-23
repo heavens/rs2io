@@ -78,4 +78,15 @@ mod test {
         // bits.writ(&mut packet);
         println!("{:?}", bits.as_slice());
     }
+
+    #[test]
+    fn test_alt1_read() {
+        let mut packet = Packet::new(2);
+        packet.p2_alt2(10);
+        packet.set_pos(0);
+        println!("{:?}", packet);
+        let value = packet.g2_alt2().unwrap();
+        println!("{:?}", value);
+        // bits.writ(&mut packet);
+    }
 }

@@ -1,24 +1,22 @@
+use crate::packet::error::{error, PacketError};
 use std::fmt::Debug;
 use std::io::{ErrorKind, Read};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
-use crate::packet::error::{error, PacketError};
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
-
         let cap = $this.capacity();
         let pos = $this.pos;
         if pos + $value_size > cap {
-            return error(
-                format!(
-                    "expected pos + size_in_bytes < limit. (pos: {}, cap: {})",
-                    pos, cap
-                )
-            );
+            return error(format!(
+                "expected pos + size_in_bytes < limit. (pos: {}, cap: {})",
+                pos, cap
+            ));
         }
 
-        let slice = unsafe { *($this.bytes[pos..pos + $value_size].as_ptr() as *const [_; $value_size]) };
+        let slice =
+            unsafe { *($this.bytes[pos..pos + $value_size].as_ptr() as *const [_; $value_size]) };
         $this.pos += $value_size;
         Ok($value_expr(slice))
     }};
@@ -48,10 +46,7 @@ impl Packet {
     /// Creates a new byte buffer whose contents are initialized with 0.
     pub fn new(capacity: usize) -> Self {
         let buf = vec![0u8; capacity];
-        Self {
-            bytes: buf,
-            pos: 0,
-        }
+        Self { bytes: buf, pos: 0 }
     }
 
     pub fn empty() -> Self {
@@ -181,6 +176,21 @@ impl Packet {
         g!(self, 1, i8::from_be_bytes)
     }
 
+    pub fn g1_alt1(&mut self) -> Result<u8, PacketError> {
+        self.pos += 1;
+        Ok(self.bytes[self.pos - 1] - 128 & 255)
+    }
+
+    pub fn g1_alt2(&mut self) -> Result<u8, PacketError> {
+        self.pos += 1;
+        Ok(!self.bytes[self.pos - 1] & 255)
+    }
+
+    pub fn g1_alt3(&mut self) -> Result<u8, PacketError> {
+        self.pos += 1;
+        Ok((128 - self.bytes[self.pos - 1]) & 255)
+    }
+
     /// Attempts to return a signed short from the reader, incrementing the position by `2` if successful. Otherwise
     /// an error is returned if not enough bytes remain.
     pub fn g2s(&mut self) -> Result<i16, PacketError> {
@@ -193,6 +203,22 @@ impl Packet {
         g!(self, 2, u16::from_be_bytes)
     }
 
+    pub fn g2_alt1(&mut self) -> Result<u16, PacketError> {
+        self.pos += 2;
+        Ok(self.bytes[self.pos - 1] as u16 & 255 << 8 | self.bytes[self.pos - 2] as u16 & 255)
+    }
+
+    pub fn g2_alt2(&mut self) -> Result<u16, PacketError> {
+        self.pos += 2;
+        Ok((self.bytes[self.pos - 2] as u16 & 255 << 8)
+            | (self.bytes[self.pos - 1] as u16 - 128 & 255))
+    }
+
+    pub fn g2_alt3(&mut self) -> Result<u16, PacketError> {
+        self.pos += 2;
+        Ok((self.bytes[self.pos - 2] as u16 - 128 & 255) | (self.bytes[self.pos - 1] as u16) << 8)
+    }
+
     /// Attempts to return a 24-bit unsigned integer from the reader, incrementing the position by
     /// `3` if successful. Otherwise, an error is returned if not enough bytes remain.
     pub fn g3(&mut self) -> Result<usize, PacketError> {
@@ -202,7 +228,10 @@ impl Packet {
                 | (self.bytes[self.pos - 2] as usize) << 8
                 | self.bytes[self.pos - 1] as usize)
         } else {
-            error(format!("expected at least 3 bytes, but only {} were available", self.available_count()))
+            error(format!(
+                "expected at least 3 bytes, but only {} were available",
+                self.available_count()
+            ))
         }
     }
 
@@ -281,7 +310,7 @@ impl Packet {
     /// Sets the position at the specified index within the internal buffer.
     pub fn set_pos(&mut self, index: usize) -> Result<(), PacketError> {
         if index >= self.pos {
-            return error(format!("attempted to set cursor at invalid position. expected index < len (index: {}, len: {})", index, self.bytes.len()))
+            return error(format!("attempted to set cursor at invalid position. expected index < len (index: {}, len: {})", index, self.bytes.len()));
         }
         self.pos = index;
         Ok(())
@@ -356,7 +385,12 @@ impl Read for Packet {
         let mut values = buf.len();
         let len = values;
         while values > 0 {
-            buf[len - values] = self.g1().map_err(|reason| io::Error::new(ErrorKind::Other, format!("unable to read bytes at current pos: {:?}", reason)))?;
+            buf[len - values] = self.g1().map_err(|reason| {
+                io::Error::new(
+                    ErrorKind::Other,
+                    format!("unable to read bytes at current pos: {:?}", reason),
+                )
+            })?;
             values -= 1;
         }
         Ok(self.pos - pos)
@@ -382,6 +416,21 @@ impl Packet {
         p!(self, slice)
     }
 
+    pub fn p1_alt1(&mut self, value: u8) {
+        self.pos += 1;
+        self.bytes[self.pos - 1] = value + 128;
+    }
+
+    pub fn p1_alt2(&mut self, value: u8) {
+        self.pos += 1;
+        self.bytes[self.pos - 1] = !value;
+    }
+
+    pub fn p1_alt3(&mut self, value: usize) {
+        self.pos += 1;
+        self.bytes[self.pos - 1] = (128 - value) as u8
+    }
+
     /// Writes a signed byte value into the buffer, incrementing the position by `1`.
     pub fn p1s(&mut self, value: i8) {
         let slice = &i8::to_be_bytes(value);
@@ -398,6 +447,24 @@ impl Packet {
     pub fn p2(&mut self, value: u16) {
         let slice = &u16::to_be_bytes(value);
         p!(self, slice)
+    }
+
+    pub fn p2_alt1(&mut self, value: u16) {
+        self.pos += 2;
+        self.bytes[self.pos - 2] = value as u8;
+        self.bytes[self.pos - 1] = (value >> 8) as u8;
+    }
+
+    pub fn p2_alt2(&mut self, value: u16) {
+        self.pos += 2;
+        self.bytes[self.pos - 2] = (value >> 8) as u8;
+        self.bytes[self.pos - 1] = (value + 128) as u8;
+    }
+
+    pub fn p2_alt3(&mut self, value: u16) {
+        self.pos += 2;
+        self.bytes[self.pos - 2] = (value + 128) as u8;
+        self.bytes[self.pos - 1] = (value >> 8) as u8;
     }
 
     pub fn p3(&mut self, value: u32) {
