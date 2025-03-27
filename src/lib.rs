@@ -72,10 +72,10 @@ mod test {
     fn test_read_bits() {
         let mut packet = Packet::new(5);
         let mut bits = PacketBit::new();
-        bits.pbits(12, 445);
+        bits.pbits(30, 445);
         bits.pbits(5, 6);
         bits.pbits(14, 36);
-        let value1 = bits.gbits(12).unwrap();
+        let value1 = bits.gbits(30).unwrap();
         let value2 = bits.gbits(5).unwrap();
         let value3 = bits.gbits(14).unwrap();
 
@@ -87,7 +87,7 @@ mod test {
 
     #[test]
     fn test_alt1_read() {
-        let mut packet = Packet::new(2);
+        let mut packet = Packet::new(1);
         packet.p2_alt2(10);
         packet.set_pos(0);
         println!("{:?}", packet);

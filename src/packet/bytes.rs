@@ -56,18 +56,6 @@ impl Packet {
         }
     }
 
-    /// Resizes the buffer to satisfy the `new_len`, filling the allocated memory with the
-    /// provided value.
-    pub(crate) fn resize(&mut self, new_len: usize) {
-        self.bytes.resize(new_len, 0u8);
-    }
-
-    pub(crate) fn check_for_space(&mut self, space: usize) {
-        if self.available_count() < space {
-            self.resize(space * 2);
-        }
-    }
-
     /// Clears the buffer by setting both the read and write position to 0.
     pub fn clear(&mut self) {
         self.pos = 0;
@@ -157,8 +145,8 @@ impl AsRef<[u8]> for Packet {
 
 impl Debug for Packet {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ByteBuffer")
-            .field("buf", &self.bytes)
+        f.debug_struct("Packet")
+            .field("bytes", &self.bytes)
             .finish()
     }
 }
@@ -222,17 +210,10 @@ impl Packet {
     /// Attempts to return a 24-bit unsigned integer from the reader, incrementing the position by
     /// `3` if successful. Otherwise, an error is returned if not enough bytes remain.
     pub fn g3(&mut self) -> Result<usize, PacketError> {
-        if self.has_available(3) {
-            self.pos += 3;
-            Ok((self.bytes[self.pos - 3] as usize) << 16
-                | (self.bytes[self.pos - 2] as usize) << 8
-                | self.bytes[self.pos - 1] as usize)
-        } else {
-            error(format!(
-                "expected at least 3 bytes, but only {} were available",
-                self.available_count()
-            ))
-        }
+        self.pos += 3;
+        Ok((self.bytes[self.pos - 3] as usize) << 16
+            | (self.bytes[self.pos - 2] as usize) << 8
+            | self.bytes[self.pos - 1] as usize)
     }
 
     /// Attempts to return a signed integer from the reader, incrementing the position by
@@ -417,16 +398,19 @@ impl Packet {
     }
 
     pub fn p1_alt1(&mut self, value: u8) {
+        self.ensure_capacity(1);
         self.pos += 1;
         self.bytes[self.pos - 1] = value + 128;
     }
 
     pub fn p1_alt2(&mut self, value: u8) {
+        self.ensure_capacity(1);
         self.pos += 1;
         self.bytes[self.pos - 1] = !value;
     }
 
     pub fn p1_alt3(&mut self, value: usize) {
+        self.ensure_capacity(1);
         self.pos += 1;
         self.bytes[self.pos - 1] = (128 - value) as u8
     }
@@ -450,29 +434,28 @@ impl Packet {
     }
 
     pub fn p2_alt1(&mut self, value: u16) {
+        self.ensure_capacity(2);
         self.pos += 2;
         self.bytes[self.pos - 2] = value as u8;
         self.bytes[self.pos - 1] = (value >> 8) as u8;
     }
 
     pub fn p2_alt2(&mut self, value: u16) {
+        self.ensure_capacity(2);
         self.pos += 2;
         self.bytes[self.pos - 2] = (value >> 8) as u8;
         self.bytes[self.pos - 1] = (value + 128) as u8;
     }
 
     pub fn p2_alt3(&mut self, value: u16) {
+        self.ensure_capacity(2);
         self.pos += 2;
         self.bytes[self.pos - 2] = (value + 128) as u8;
         self.bytes[self.pos - 1] = (value >> 8) as u8;
     }
 
     pub fn p3(&mut self, value: u32) {
-        // Expand the underlying buffer to make room for at least 3 more bytes.
-        if self.pos + 3 >= self.capacity() {
-            self.resize(3);
-        }
-
+        self.ensure_capacity(3);
         self.pos += 3;
         self.bytes[self.pos - 3] = (value >> 16) as u8;
         self.bytes[self.pos - 2] = (value >> 8) as u8;
@@ -501,6 +484,7 @@ impl Packet {
     /// `value.len() + 1`.
     pub fn pjstr(&mut self, value: impl AsRef<str>) {
         let bytes: &[u8] = value.as_ref().as_bytes();
+        self.ensure_capacity(bytes.len() + 1);
         p!(self, bytes);
         self.p1(0);
     }
@@ -535,14 +519,19 @@ impl Packet {
 
     /// Increases the capacity of the underlying buffer to be capable of storing at least `new_cap`
     /// amount of items.
-    ///
-    /// ### Note
-    /// Attempting to set the capacity of the writer to anything smaller than the current capacity
-    /// will result in a no-op.
     pub fn grow(&mut self, new_cap: usize) {
         let old_cap = self.bytes.capacity();
         if new_cap > old_cap {
-            self.bytes.resize(new_cap - old_cap, 0);
+            self.bytes.resize((old_cap + (new_cap - old_cap)) * 2, 0);
+        }
+    }
+
+    /// Verifies if enough space exists within the underlying buffer, expanding the buffer
+    /// if necessary.
+    fn ensure_capacity(&mut self, space_needed: usize) {
+        let cap = self.bytes.capacity();
+        if self.pos + space_needed >= cap {
+            self.grow(self.pos + space_needed);
         }
     }
 
