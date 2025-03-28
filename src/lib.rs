@@ -73,11 +73,17 @@ mod test {
         let mut packet = Packet::new(5);
         let mut bits = PacketBit::new();
         bits.pbits(30, 445);
+        println!("{}", bits.writer_byte_position());
         bits.pbits(5, 6);
+        println!("{}", bits.writer_byte_position());
         bits.pbits(14, 36);
+        println!("{}", bits.writer_byte_position());
         let value1 = bits.gbits(30).unwrap();
+        println!("{}", bits.reader_byte_position());
         let value2 = bits.gbits(5).unwrap();
+        println!("{}", bits.reader_byte_position());
         let value3 = bits.gbits(14).unwrap();
+        println!("{}", bits.reader_byte_position());
 
         // bits.writ(&mut packet);
         println!("{:?}", value1);

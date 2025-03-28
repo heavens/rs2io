@@ -88,6 +88,8 @@ impl PacketBit {
             byte_index += 1;
             bit_index = 0;
         }
+
+        self.writer_byte_pos += (len + 7) / 8;
         Ok(())
     }
 
@@ -98,14 +100,14 @@ impl PacketBit {
     }
 
     pub fn read_bits(&mut self, index: u32, len: u32) -> Result<u32, PacketError> {
-        const BITS_PER_BYTE: u32 = 8;
-        const BITS_PER_INT: u32 = 32;
-        const MASK_BITS_PER_BYTE: u32 = BITS_PER_BYTE - 1;
+        const BITS_PER_BYTE: usize = 8;
+        const BITS_PER_INT: usize = 32;
+        const MASK_BITS_PER_BYTE: usize = BITS_PER_BYTE - 1;
 
         let mut value = 0u32;
-        let mut remaining = len;
+        let mut remaining = len as usize;
         let mut byte_index = index >> 3;
-        let mut bit_index = index & MASK_BITS_PER_BYTE;
+        let mut bit_index = index as usize & MASK_BITS_PER_BYTE;
 
         while remaining > 0 {
             let n = min(BITS_PER_BYTE - bit_index, remaining);
@@ -123,6 +125,7 @@ impl PacketBit {
             bit_index = 0;
         }
 
+        self.reader_byte_pos += ((len + 7) / 8) as usize;
         Ok(value)
     }
 
