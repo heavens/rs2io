@@ -4,12 +4,8 @@ use std::io;
 
 /// A specialized buffer that allows for reading and writing data at bit-level granularity.
 pub struct PacketBit {
-    /// Current byte write position in buffer
-    writer_byte_pos: usize,
     /// Current bit write position within the current byte (0-7)
     writer_bit_pos: usize,
-    /// Current byte read position in buffer
-    reader_byte_pos: usize,
     /// Current bit read position within the current byte (0-7)
     reader_bit_pos: usize,
     /// Underlying buffer for data storage
@@ -32,9 +28,7 @@ impl PacketBit {
 
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            writer_byte_pos: 0,
             writer_bit_pos: 0,
-            reader_byte_pos: 0,
             reader_bit_pos: 0,
             buffer: vec![0u8; capacity].into_boxed_slice(),
         }
@@ -45,9 +39,7 @@ impl PacketBit {
         buffer.copy_from_slice(data);
 
         Self {
-            writer_byte_pos: data.len(),
             writer_bit_pos: 0,
-            reader_byte_pos: 0,
             reader_bit_pos: 0,
             buffer,
         }
@@ -68,8 +60,6 @@ impl PacketBit {
         const BITS_PER_INT: usize = 32;
         const MASK_BITS_PER_BYTE: usize = BITS_PER_BYTE - 1;
 
-        self.ensure_capacity(self.writer_byte_pos + ((self.writer_bit_pos + len + 7) / 8))?;
-
         let mut remaining = len;
         let mut byte_index = index >> 3;
         let mut bit_index = index & MASK_BITS_PER_BYTE;
@@ -89,7 +79,6 @@ impl PacketBit {
             bit_index = 0;
         }
 
-        self.writer_byte_pos += (len + 7) / 8;
         Ok(())
     }
 
@@ -125,29 +114,11 @@ impl PacketBit {
             bit_index = 0;
         }
 
-        self.reader_byte_pos += ((len + 7) / 8) as usize;
         Ok(value)
-    }
-
-    /// Align writer to the next byte boundary.
-    pub fn align_writer(&mut self) {
-        if self.writer_bit_pos > 0 {
-            self.writer_byte_pos += 1;
-            self.writer_bit_pos = 0;
-        }
-    }
-
-    /// Align reader to the next byte boundary.
-    pub fn align_reader(&mut self) {
-        if self.reader_bit_pos > 0 {
-            self.reader_byte_pos += 1;
-            self.reader_bit_pos = 0;
-        }
     }
 
     /// Reset the reader position to the beginning of the buffer.
     pub fn reset_reader(&mut self) {
-        self.reader_byte_pos = 0;
         self.reader_bit_pos = 0;
     }
 
@@ -170,7 +141,7 @@ impl PacketBit {
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        let end = self.writer_byte_pos + (self.writer_bit_pos > 0) as usize;
+        let end = self.writer_byte_position();
         &self.buffer[..end]
     }
 
@@ -180,7 +151,7 @@ impl PacketBit {
     }
 
     pub fn writer_byte_position(&self) -> usize {
-        self.writer_byte_pos
+        self.writer_bit_pos >> 3
     }
 
     pub fn writer_bit_position(&self) -> usize {
@@ -188,23 +159,11 @@ impl PacketBit {
     }
 
     pub fn reader_byte_position(&self) -> usize {
-        self.reader_byte_pos
+        self.reader_bit_pos >> 3
     }
 
     pub fn reader_bit_position(&self) -> usize {
         self.reader_bit_pos
-    }
-
-    pub fn bits_written(&self) -> usize {
-        (self.writer_byte_pos * Self::BITS_PER_BYTE) + self.writer_bit_pos
-    }
-
-    pub fn bits_read(&self) -> usize {
-        (self.reader_byte_pos * Self::BITS_PER_BYTE) + self.reader_bit_pos
-    }
-
-    pub fn bytes_written(&self) -> usize {
-        self.writer_byte_pos + (self.writer_bit_pos > 0) as usize
     }
 }
 
