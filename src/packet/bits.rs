@@ -1,172 +1,232 @@
-use crate::packet::error::PacketError;
-use std::cmp::min;
-use std::io;
+const BIT_MASKS: [u32; 33] = [
+    0x0, 0x1, 0x3, 0x7, 0xf, 0x1f, 0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff,
+    0x3fff, 0x7fff, 0xffff, 0x1ffff, 0x3ffff, 0x7ffff, 0xfffff, 0x1fffff, 0x3fffff, 0x7fffff,
+    0xffffff, 0x1ffffff, 0x3ffffff, 0x7ffffff, 0xfffffff, 0x1fffffff, 0x3fffffff, 0x7fffffff,
+    0xffffffff,
+];
 
-/// A specialized buffer that allows for reading and writing data at bit-level granularity.
-pub struct PacketBit {
-    /// Current bit write position within the current byte (0-7)
-    writer_bit_pos: usize,
-    /// Current bit read position within the current byte (0-7)
-    reader_bit_pos: usize,
-    /// Underlying buffer for data storage
-    buffer: Box<[u8]>,
+use std::{io, mem};
+use crate::packet::bytes::Packet;
+use crate::packet::error::PacketError;
+
+#[derive(Debug)]
+pub struct BitReader<'a> {
+    buffer: &'a [u8],
+    byte_pos: usize,
+    bit_pos: usize,
 }
 
-impl PacketBit {
-    /// Precalculated bit masks for efficient bit operations (2^n - 1)
-    const BIT_MASKS: [u32; 32] = [
-        0x0, 0x1, 0x3, 0x7, 0xf, 0x1f, 0x3f, 0x7f, 0xff, 0x1ff, 0x3ff, 0x7ff, 0xfff, 0x1fff,
-        0x3fff, 0x7fff, 0xffff, 0x1ffff, 0x3ffff, 0x7ffff, 0xfffff, 0x1fffff, 0x3fffff, 0x7fffff,
-        0xffffff, 0x1ffffff, 0x3ffffff, 0x7ffffff, 0xfffffff, 0x1fffffff, 0x3fffffff, 0x7fffffff
-    ];
-
-    const BITS_PER_BYTE: usize = 8;
-
-    pub fn new() -> Self {
-        Self::with_capacity(32)
-    }
-
-    pub fn with_capacity(capacity: usize) -> Self {
+impl<'a> BitReader<'a> {
+    pub fn new(buffer: &'a [u8]) -> Self {
         Self {
-            writer_bit_pos: 0,
-            reader_bit_pos: 0,
-            buffer: vec![0u8; capacity].into_boxed_slice(),
-        }
-    }
-
-    pub fn from_bytes(data: &[u8]) -> Self {
-        let mut buffer = vec![0u8; data.len()].into_boxed_slice();
-        buffer.copy_from_slice(data);
-
-        Self {
-            writer_bit_pos: 0,
-            reader_bit_pos: 0,
             buffer,
+            byte_pos: 0,
+            bit_pos: 0,
         }
     }
 
-    pub fn pbit(&mut self, value: u32) -> Result<(), PacketError> {
-        self.pbits(1, value)
+    pub fn new_at_position(buffer: &'a [u8], byte_pos: usize) -> Self {
+        Self {
+            buffer,
+            byte_pos,
+            bit_pos: 0,
+        }
     }
 
-    pub fn pbits(&mut self, len: usize, value: u32) -> Result<(), PacketError> {
-        self.write_bits(self.writer_bit_pos, len, value)?;
-        self.writer_bit_pos += len;
+    pub fn read_bits(&mut self, bit_count: usize) -> Result<usize, PacketError> {
+        if bit_count > 32 {
+            return Err(PacketError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Bit count cannot exceed 32",
+            )));
+        }
+
+        if bit_count == 0 {
+            return Ok(0);
+        }
+
+        let mut result = 0;
+        let mut bits_remaining = bit_count;
+
+        while bits_remaining > 0 {
+            if self.byte_pos >= self.buffer.len() {
+                return Err(PacketError::Io(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "End of buffer reached",
+                )));
+            }
+
+            let bits_available_in_byte = 8 - self.bit_pos;
+            let bits_to_read = std::cmp::min(bits_available_in_byte, bits_remaining);
+
+            let current_byte = self.buffer[self.byte_pos];
+
+            let shift = bits_available_in_byte - bits_to_read;
+            let mask = BIT_MASKS[bits_to_read] as usize;
+
+            let bits = ((current_byte >> shift) & mask as u8) as usize;
+            result = (result << bits_to_read) | bits;
+
+            self.bit_pos += bits_to_read;
+            bits_remaining -= bits_to_read;
+
+            if self.bit_pos == 8 {
+                self.byte_pos += 1;
+                self.bit_pos = 0;
+            }
+        }
+
+        Ok(result)
+    }
+
+    pub fn get_bit_position(&self) -> usize {
+        self.byte_pos * 8 + self.bit_pos
+    }
+
+    pub fn has_bits_available(&self, bit_count: usize) -> bool {
+        let total_bits_in_buffer = self.buffer.len() * 8;
+        let bits_consumed = self.byte_pos * 8 + self.bit_pos;
+
+        total_bits_in_buffer - bits_consumed >= bit_count
+    }
+
+    pub fn get_bits_used(&self) -> usize {
+        self.bit_pos
+    }
+
+    pub fn get_buffer(&self) -> &[u8] {
+        self.buffer
+    }
+
+    pub fn skip_bits(&mut self, bit_count: usize) -> Result<(), PacketError> {
+        let mut bits_to_skip = bit_count;
+
+        while bits_to_skip > 0 {
+            let bits_remaining_in_byte = 8 - self.bit_pos;
+            let bits_skip_now = std::cmp::min(bits_remaining_in_byte, bits_to_skip);
+
+            self.bit_pos += bits_skip_now;
+
+            if self.bit_pos == 8 {
+                self.byte_pos += 1;
+                self.bit_pos = 0;
+
+                if self.byte_pos > self.buffer.len() {
+                    return Err(PacketError::Io(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "End of buffer reached while skipping",
+                    )));
+                }
+            }
+
+            bits_to_skip -= bits_skip_now;
+        }
+
         Ok(())
     }
+}
 
-    pub fn write_bits(&mut self, index: usize, len: usize, value: u32) -> Result<(), PacketError> {
-        const BITS_PER_BYTE: usize = 8;
-        const BITS_PER_INT: usize = 32;
-        const MASK_BITS_PER_BYTE: usize = BITS_PER_BYTE - 1;
+impl<'a> From<&'a Packet> for BitReader<'a> {
+    fn from(value: &'a Packet) -> Self {
+        Self::new_at_position(value, value.get_pos())
+    }
+}
 
-        let mut remaining = len;
-        let mut byte_index = index >> 3;
-        let mut bit_index = index & MASK_BITS_PER_BYTE;
+#[derive(Debug)]
+pub struct BitWriter<'a> {
+    buffer: &'a mut Vec<u8>,
+    byte_pos: usize,
+    bit_pos: usize,
+}
 
-        while remaining > 0 {
-            let n = min(BITS_PER_BYTE - bit_index, remaining);
-            let shift = (BITS_PER_BYTE - (bit_index + n)) & MASK_BITS_PER_BYTE;
-            let mask = (1 << n) - 1u32;
+impl<'a> BitWriter<'a> {
+    pub fn new(buffer: &'a mut Vec<u8>) -> Self {
+        let byte_pos = buffer.len();
+        Self {
+            buffer,
+            byte_pos,
+            bit_pos: 0,
+        }
+    }
 
-            let mut v = self.buffer[byte_index];
-            v = v & !(mask << shift) as u8;
-            v |= (((value >> (remaining - n)) & mask) as u8) << shift;
-            self.buffer[byte_index] = v;
+    pub fn new_at_position(buffer: &'a mut Vec<u8>, byte_pos: usize) -> Self {
+        Self {
+            buffer,
+            byte_pos,
+            bit_pos: 0,
+        }
+    }
 
-            remaining -= n;
-            byte_index += 1;
-            bit_index = 0;
+    pub fn write_bits(&mut self, value: u32, bit_count: usize) -> Result<(), PacketError> {
+        if bit_count > 32 {
+            return Err(PacketError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Bit count cannot exceed 32",
+            )));
         }
 
-        Ok(())
-    }
-
-    pub fn gbits(&mut self, bits: usize) -> Result<u32, PacketError> {
-        let value = self.read_bits(self.reader_bit_pos as u32, bits as u32);
-        self.reader_bit_pos += bits;
-        value
-    }
-
-    pub fn read_bits(&mut self, index: u32, len: u32) -> Result<u32, PacketError> {
-        const BITS_PER_BYTE: usize = 8;
-        const BITS_PER_INT: usize = 32;
-        const MASK_BITS_PER_BYTE: usize = BITS_PER_BYTE - 1;
-
-        let mut value = 0u32;
-        let mut remaining = len as usize;
-        let mut byte_index = index >> 3;
-        let mut bit_index = index as usize & MASK_BITS_PER_BYTE;
-
-        while remaining > 0 {
-            let n = min(BITS_PER_BYTE - bit_index, remaining);
-
-            let shift = (BITS_PER_BYTE - (bit_index + n)) & MASK_BITS_PER_BYTE;
-            let mask = (1 << n) - 1;
-
-            let v = self.buffer[byte_index as usize];
-
-            value <<= n;
-            value |= ((v >> shift) & mask as u8) as u32;
-
-            remaining -= n;
-            byte_index += 1;
-            bit_index = 0;
-        }
-
-        Ok(value)
-    }
-
-    /// Reset the reader position to the beginning of the buffer.
-    pub fn reset_reader(&mut self) {
-        self.reader_bit_pos = 0;
-    }
-
-    /// Ensure the buffer has enough capacity.
-    fn ensure_capacity(&mut self, required_capacity: usize) -> io::Result<()> {
-        if required_capacity <= self.buffer.len() {
+        if bit_count == 0 {
             return Ok(());
         }
 
-        let mut new_capacity = self.buffer.len();
-        while new_capacity < required_capacity {
-            new_capacity *= 2;
+        let max_value = if bit_count == 32 { 0xFFFFFFFF } else { (1 << bit_count) - 1 };
+        let masked_value = value & max_value;
+
+        let mut bits_remaining = bit_count;
+        let mut bits_value = masked_value;
+
+        while bits_remaining > 0 {
+            if self.byte_pos >= self.buffer.len() {
+                self.buffer.push(0);
+            }
+
+            let bits_available_in_byte = 8 - self.bit_pos;
+            let bits_to_write = std::cmp::min(bits_available_in_byte, bits_remaining);
+
+            let shift = bits_remaining - bits_to_write;
+            let mask = BIT_MASKS[bits_to_write];
+            let bits = (bits_value >> shift) & mask;
+
+            let bit_shift = bits_available_in_byte - bits_to_write;
+            let byte_mask = (bits as u8) << bit_shift;
+
+            self.buffer[self.byte_pos] |= byte_mask;
+
+            self.bit_pos += bits_to_write;
+            bits_remaining -= bits_to_write;
+
+            if self.bit_pos == 8 {
+                self.byte_pos += 1;
+                self.bit_pos = 0;
+            }
         }
 
-        let mut new_buffer = vec![0u8; new_capacity].into_boxed_slice();
-        new_buffer[..self.buffer.len()].copy_from_slice(&self.buffer);
-        self.buffer = new_buffer;
-
         Ok(())
     }
 
-    pub fn as_slice(&self) -> &[u8] {
-        let end = self.writer_byte_position();
-        &self.buffer[..end]
+    pub fn flush(&mut self) {
+        if self.bit_pos > 0 {
+            self.byte_pos += 1;
+            self.bit_pos = 0;
+        }
     }
 
-    pub fn write_to_packet(&self, packet: &mut dyn PacketWriter) -> Result<(), PacketError> {
-        packet.put_slice(self.as_slice())?;
-        Ok(())
+    pub fn get_bits_used(&self) -> usize {
+        self.bit_pos
     }
 
-    pub fn writer_byte_position(&self) -> usize {
-        self.writer_bit_pos >> 3
+    pub fn get_byte_pos(&self) -> usize {
+        self.byte_pos
     }
 
-    pub fn writer_bit_position(&self) -> usize {
-        self.writer_bit_pos
-    }
-
-    pub fn reader_byte_position(&self) -> usize {
-        self.reader_bit_pos >> 3
-    }
-
-    pub fn reader_bit_position(&self) -> usize {
-        self.reader_bit_pos
+    pub fn get_buffer(&self) -> &Vec<u8> {
+        self.buffer
     }
 }
 
-pub trait PacketWriter {
-    fn put_slice(&mut self, data: &[u8]) -> Result<(), PacketError>;
+impl<'a> From<&'a mut Packet> for BitWriter<'a> {
+    fn from(mut value: &'a mut Packet) -> Self {
+        let pos = value.get_pos();
+        Self::new_at_position(value.get_inner_mut(), pos)
+    }
 }
