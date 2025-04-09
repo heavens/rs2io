@@ -1,6 +1,6 @@
 use crate::packet::error::{error, PacketError};
 use std::fmt::Debug;
-use std::io::{ErrorKind, Read};
+use std::io::{ErrorKind, Read, Write};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
 
@@ -54,6 +54,10 @@ impl Packet {
             bytes: vec![0u8; 0],
             pos: 0,
         }
+    }
+
+    pub fn get_inner_mut(&mut self) -> &mut Vec<u8> {
+        &mut self.bytes
     }
 
     /// Clears the buffer by setting both the read and write position to 0.
@@ -290,7 +294,7 @@ impl Packet {
 
     /// Sets the position at the specified index within the internal buffer.
     pub fn set_pos(&mut self, index: usize) -> Result<(), PacketError> {
-        if index >= self.pos {
+        if index >= self.capacity() {
             return error(format!("attempted to set cursor at invalid position. expected index < len (index: {}, len: {})", index, self.bytes.len()));
         }
         self.pos = index;
@@ -306,8 +310,9 @@ impl Packet {
         self.bytes.get(self.pos).copied()
     }
 
-    /// Increments the reader position by `count` bytes. If the specified count causes the position to overflow then it's resized to
-    /// `remaining`.
+    /// Advances the position by `count` bytes, essentially discarding the bytes being stepped over.
+    /// If the amount of bytes specified exceeds the amount of bytes available, thus exhausting the
+    /// buffer, then the position is moved to the end of the buffer.
     pub fn skip(&mut self, bytes: usize) {
         self.pos += cmp::min(bytes, self.available_count());
     }
@@ -536,7 +541,7 @@ impl Packet {
     }
 
     /// Returns the capacity of the underlying buffer denoting the amount of items the buffer is
-    /// capable of holding.
+    /// capable of holding before needing to be resized.
     pub fn capacity(&self) -> usize {
         self.bytes.capacity()
     }
@@ -547,6 +552,11 @@ impl Packet {
         self.bytes.len()
     }
 
+    /// Returns a slice of the packet's contents returning a partial view of
+    pub fn get_slice(&self) -> &[u8] {
+        &self.bytes[self.pos..]
+    }
+
     /// Writes a raw byte slice to the buffer. The position is incremented based on the len of the slice written.
     pub fn put_slice(&mut self, slice: &[u8]) {
         p!(self, slice);
@@ -555,5 +565,16 @@ impl Packet {
     /// Allocates an array capable of holding the copied contents of this writer.
     pub fn to_vec(&self) -> Vec<u8> {
         self.bytes.to_vec()
+    }
+}
+
+impl Write for Packet {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.put_slice(&buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
     }
 }

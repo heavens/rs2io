@@ -37,9 +37,10 @@ macro_rules! p {
 
 #[cfg(test)]
 mod test {
-    use crate::packet::bits::PacketBit;
     use crate::packet::bytes::Packet;
     use crate::packet::error::PacketError;
+    use bitvec::prelude::*;
+    use crate::packet::bits::{BitReader, BitWriter};
 
     #[test]
     fn test_read_string() -> Result<(), PacketError> {
@@ -69,29 +70,6 @@ mod test {
     }
 
     #[test]
-    fn test_read_bits() {
-        let mut packet = Packet::new(5);
-        let mut bits = PacketBit::new();
-        bits.pbits(30, 445);
-        println!("{}", bits.writer_byte_position());
-        bits.pbits(5, 6);
-        println!("{}", bits.writer_byte_position());
-        bits.pbits(14, 36);
-        println!("{}", bits.writer_byte_position());
-        let value1 = bits.gbits(30).unwrap();
-        println!("{}", bits.reader_byte_position());
-        let value2 = bits.gbits(5).unwrap();
-        println!("{}", bits.reader_byte_position());
-        let value3 = bits.gbits(14).unwrap();
-        println!("{}", bits.reader_byte_position());
-
-        // bits.writ(&mut packet);
-        println!("{:?}", value1);
-        println!("{:?}", value2);
-        println!("{:?}", value3);
-    }
-
-    #[test]
     fn test_alt1_read() {
         let mut packet = Packet::new(1);
         packet.p2_alt2(10);
@@ -100,5 +78,32 @@ mod test {
         let value = packet.g2_alt2().unwrap();
         println!("{:?}", value);
         // bits.writ(&mut packet);
+    }
+
+    #[test]
+    fn test_bit_write_read() {
+        // Write some data
+        let mut buffer = Packet::new(100);
+        buffer.p1(4);
+        buffer.p2(100);
+        {
+            let mut writer = BitWriter::from(&mut buffer);
+            writer.write_bits(2, 3).unwrap();
+            writer.write_bits(100, 8).unwrap(); // crossing byte boundary
+            writer.write_bits(0, 1).unwrap();
+            writer.write_bits(2000, 16).unwrap();
+        }
+
+        println!("{:?}", buffer);
+        buffer.set_pos(0);
+        println!("{:?}", buffer.g1());
+        println!("{:?}", buffer.g2());
+        {
+            let mut reader = BitReader::from(&buffer);
+            assert_eq!(reader.read_bits(3).unwrap(), 2);
+            assert_eq!(reader.read_bits(8).unwrap(), 100);
+            assert_eq!(reader.read_bits(1).unwrap(), 0);
+            assert_eq!(reader.read_bits(16).unwrap(), 2000);
+        }
     }
 }
