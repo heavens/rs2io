@@ -5,9 +5,9 @@ const BIT_MASKS: [u32; 33] = [
     0xffffffff,
 ];
 
-use std::{io, mem};
 use crate::packet::bytes::Packet;
 use crate::packet::error::PacketError;
+use std::io;
 
 #[derive(Debug)]
 pub struct BitReader<'a> {

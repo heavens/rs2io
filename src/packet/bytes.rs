@@ -294,7 +294,7 @@ impl Packet {
 
     /// Sets the position at the specified index within the internal buffer.
     pub fn set_pos(&mut self, index: usize) -> Result<(), PacketError> {
-        if index >= self.capacity() {
+        if index > self.capacity() {
             return error(format!("attempted to set cursor at invalid position. expected index < len (index: {}, len: {})", index, self.bytes.len()));
         }
         self.pos = index;

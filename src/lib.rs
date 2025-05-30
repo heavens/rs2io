@@ -39,7 +39,6 @@ macro_rules! p {
 mod test {
     use crate::packet::bytes::Packet;
     use crate::packet::error::PacketError;
-    use bitvec::prelude::*;
     use crate::packet::bits::{BitReader, BitWriter};
 
     #[test]
