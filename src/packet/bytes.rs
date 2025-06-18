@@ -559,9 +559,10 @@ impl Packet {
             }
 
             self.pos -= 8;
-            self.p4(v0);
-            self.p4(v1);
+            self.p4(v0.try_into().unwrap());
+            self.p4(v1.try_into().unwrap());
         }
+        Ok(())
     }
 
     pub fn tiny_key_decrypt(&mut self, key: &[i32; 4]) -> Result<(), PacketError> {
@@ -591,9 +592,10 @@ impl Packet {
             }
 
             self.pos -= 8;
-            self.p4(v0);
-            self.p4(v1);
+            self.p4(v0.try_into().unwrap());
+            self.p4(v1.try_into().unwrap());
         }
+        Ok(())
     }
 
 
@@ -625,11 +627,12 @@ impl Packet {
             }
 
             self.pos -= 8;
-            self.p4(v0);
-            self.p4(v1);
+            self.p4(v0.try_into().unwrap());
+            self.p4(v1.try_into().unwrap());
         }
 
         self.pos = original_pos;
+        Ok(())
     }
 
     pub fn tiny_key_decrypt_range(&mut self, key: &[i32; 4], start: usize, end: usize) -> Result<(), PacketError> {
@@ -661,11 +664,12 @@ impl Packet {
             }
 
             self.pos -= 8;
-            self.p4(v0);
-            self.p4(v1);
+            self.p4(v0.try_into().unwrap());
+            self.p4(v1.try_into().unwrap());
         }
 
         self.pos = original_pos;
+        Ok(())
     }
 
     pub fn rsa_encrypt(&mut self, exponent: &BigInt, modulus: &BigInt) {
