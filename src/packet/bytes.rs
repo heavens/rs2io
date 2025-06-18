@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Read, Write};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
+use num_bigint::BigInt;
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
@@ -96,7 +97,7 @@ impl Index<RangeInclusive<usize>> for Packet {
     fn index(&self, index: RangeInclusive<usize>) -> &Self::Output {
         let start = *index.start();
         let end = *index.end();
-        if end <= start {
+        if end >= self.len() || start > end {
             return &[];
         }
         &self.deref()[start..=end]
@@ -107,11 +108,10 @@ impl Index<RangeTo<usize>> for Packet {
     type Output = [u8];
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
-        let end = index.end;
-        if end == 0 {
+        if index.end > self.len() {
             return &[];
         }
-        &self.deref()[..end]
+        &self.deref()[..index.end]
     }
 }
 
@@ -119,11 +119,21 @@ impl Index<RangeFrom<usize>> for Packet {
     type Output = [u8];
 
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
-        let start = index.start;
-        if start >= self.capacity() {
+        if index.start >= self.len() {
             return &[];
         }
-        &self.deref()[start..]
+        &self.deref()[index.start..]
+    }
+}
+
+impl Index<Range<usize>> for Packet {
+    type Output = [u8];
+
+    fn index(&self, index: Range<usize>) -> &Self::Output {
+        if index.end > self.len() || index.start > index.end {
+            return &[];
+        }
+        &self.deref()[index]
     }
 }
 
@@ -522,6 +532,156 @@ impl Packet {
         }
     }
 
+    pub fn tiny_key_encrypt(&mut self, key: &[i32; 4]) -> Result<(), PacketError> {
+        let block_count = self.bytes.len() / 8;
+        self.pos = 0;
+
+        for _ in 0..block_count {
+            let mut v0 = self.g4s()?;
+            let mut v1 = self.g4s()?;
+            let mut sum = 0i32;
+            let delta = -1640531527i32;
+
+            for _ in 0..32 {
+                v1 = v1.wrapping_add(
+                    (v0 << 4 ^ v0 >> 5)
+                        .wrapping_add(v0)
+                        ^ key[(sum >> 11) & 3]
+                        .wrapping_add(sum),
+                );
+                sum = sum.wrapping_add(delta);
+                v0 = v0.wrapping_add(
+                    (v1 << 4 ^ v1 >> 5)
+                        .wrapping_add(v1)
+                        ^ key[sum & 3]
+                        .wrapping_add(sum),
+                );
+            }
+
+            self.pos -= 8;
+            self.p4(v0);
+            self.p4(v1);
+        }
+    }
+
+    pub fn tiny_key_decrypt(&mut self, key: &[i32; 4]) -> Result<(), PacketError> {
+        let block_count = self.bytes.len() / 8;
+        self.pos = 0;
+
+        for _ in 0..block_count {
+            let mut v0 = self.g4s()?;
+            let mut v1 = self.g4s()?;
+            let delta = -1640531527i32;
+            let mut sum = delta.wrapping_mul(32);
+
+            for _ in 0..32 {
+                v0 = v0.wrapping_sub(
+                    (v1 << 4 ^ v1 >> 5)
+                        .wrapping_add(v1)
+                        ^ key[sum & 3]
+                        .wrapping_add(sum),
+                );
+                sum = sum.wrapping_sub(delta);
+                v1 = v1.wrapping_sub(
+                    (v0 << 4 ^ v0 >> 5)
+                        .wrapping_add(v0)
+                        ^ key[(sum >> 11) & 3]
+                        .wrapping_add(sum),
+                );
+            }
+
+            self.pos -= 8;
+            self.p4(v0);
+            self.p4(v1);
+        }
+    }
+
+
+    pub fn tiny_key_encrypt_range(&mut self, key: &[i32; 4], start: usize, end: usize) -> Result<(), PacketError> {
+        let original_pos = self.pos;
+        self.pos = start;
+
+        let block_count = (end - start) / 8;
+        for _ in 0..block_count {
+            let mut v0 = self.g4s()?;
+            let mut v1 = self.g4s()?;
+            let mut sum = 0i32;
+            let delta = -1640531527i32;
+
+            for _ in 0..32 {
+                v1 = v1.wrapping_add(
+                    (v0 << 4 ^ v0 >> 5)
+                        .wrapping_add(v0)
+                        ^ key[(sum >> 11) & 3]
+                        .wrapping_add(sum),
+                );
+                sum = sum.wrapping_add(delta);
+                v0 = v0.wrapping_add(
+                    (v1 << 4 ^ v1 >> 5)
+                        .wrapping_add(v1)
+                        ^ key[sum & 3]
+                        .wrapping_add(sum),
+                );
+            }
+
+            self.pos -= 8;
+            self.p4(v0);
+            self.p4(v1);
+        }
+
+        self.pos = original_pos;
+    }
+
+    pub fn tiny_key_decrypt_range(&mut self, key: &[i32; 4], start: usize, end: usize) -> Result<(), PacketError> {
+        let original_pos = self.pos;
+        self.pos = start;
+
+        let block_count = (end - start) / 8;
+        let delta = -1640531527i32;
+
+        for _ in 0..block_count {
+            let mut v0 = self.g4s()?;
+            let mut v1 = self.g4s()?;
+            let mut sum = delta.wrapping_mul(32);
+
+            for _ in 0..32 {
+                v0 = v0.wrapping_sub(
+                    (v1 << 4 ^ v1 >> 5)
+                        .wrapping_add(v1)
+                        ^ key[(sum & 3)]
+                        .wrapping_add(sum),
+                );
+                sum = sum.wrapping_sub(delta);
+                v1 = v1.wrapping_sub(
+                    (v0 << 4 ^ v0 >> 5)
+                        .wrapping_add(v0)
+                        ^ key[(sum >> 11) & 3]
+                        .wrapping_add(sum),
+                );
+            }
+
+            self.pos -= 8;
+            self.p4(v0);
+            self.p4(v1);
+        }
+
+        self.pos = original_pos;
+    }
+
+    pub fn rsa_encrypt(&mut self, exponent: &BigInt, modulus: &BigInt) {
+        let input_len = self.pos;
+        self.pos = 0;
+
+        let data = self.gdata(input_len);
+        let bigint = BigInt::from_signed_bytes_be(&data);
+        let result = bigint.modpow(exponent, modulus);
+        let encrypted = result.to_signed_bytes_be();
+
+        self.pos = 0;
+        self.p2(encrypted.len() as u16);
+        self.pdata(&encrypted);
+    }
+
     /// Increases the capacity of the underlying buffer to be capable of storing at least `new_cap`
     /// amount of items.
     pub fn grow(&mut self, new_cap: usize) {
@@ -552,7 +712,8 @@ impl Packet {
         self.bytes.len()
     }
 
-    /// Returns a slice of the packet's contents returning a partial view of
+    /// Returns a slice of the packet's contents returning a partial view over the contents of this
+    /// packet starting from the current `pos` until the end of the byte buffer.
     pub fn get_slice(&self) -> &[u8] {
         &self.bytes[self.pos..]
     }
@@ -560,6 +721,17 @@ impl Packet {
     /// Writes a raw byte slice to the buffer. The position is incremented based on the len of the slice written.
     pub fn put_slice(&mut self, slice: &[u8]) {
         p!(self, slice);
+    }
+
+    fn gdata(&mut self, len: usize) -> Vec<u8> {
+        let data = self.bytes[self.pos..self.pos + len].to_vec();
+        self.pos += len;
+        data
+    }
+
+    fn pdata(&mut self, data: &[u8]) {
+        self.bytes.splice(self.pos..self.pos + data.len(), data.iter().cloned());
+        self.pos += data.len();
     }
 
     /// Allocates an array capable of holding the copied contents of this writer.
@@ -576,5 +748,71 @@ impl Write for Packet {
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
+    }
+}
+
+pub struct PacketView<'a> {
+    slice: &'a [u8],
+}
+
+pub struct PacketViewMut<'a> {
+    slice: &'a mut [u8],
+}
+
+impl<'a> PacketView<'a> {
+    pub fn new(packet: &'a Packet, range: impl Into<Range<usize>>) -> Option<Self> {
+        let range = range.into();
+        if range.end > packet.len() || range.start > range.end {
+            None
+        } else {
+            Some(Self {
+                slice: &packet[range],
+            })
+        }
+    }
+
+    pub fn from_inclusive(packet: &'a Packet, range: RangeInclusive<usize>) -> Option<Self> {
+        let start = *range.start();
+        let end = *range.end();
+        if start > end || end >= packet.len() {
+            None
+        } else {
+            Some(Self {
+                slice: &packet[start..=end],
+            })
+        }
+    }
+
+    pub fn as_slice(&self) -> &'a [u8] {
+        self.slice
+    }
+}
+
+impl<'a> PacketViewMut<'a> {
+    pub fn new(packet: &'a mut Packet, range: impl Into<Range<usize>>) -> Option<Self> {
+        let range = range.into();
+        if range.end > packet.len() || range.start > range.end {
+            None
+        } else {
+            Some(Self {
+                slice: &mut packet.deref_mut()[range],
+            })
+        }
+    }
+
+    pub fn from_inclusive(packet: &'a mut Packet, range: RangeInclusive<usize>) -> Option<Self> {
+        let start = *range.start();
+        let end = *range.end();
+        if start > end || end >= packet.len() {
+            None
+        } else {
+            Some(Self {
+                slice: &mut packet.deref_mut()[start..=end],
+            })
+        }
+    }
+
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.slice
     }
 }
