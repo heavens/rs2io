@@ -173,7 +173,7 @@ impl<'a> BitWriter<'a> {
         let masked_value = value & max_value;
 
         let mut bits_remaining = bit_count;
-        let mut bits_value = masked_value;
+        let bits_value = masked_value;
 
         while bits_remaining > 0 {
             if self.byte_pos >= self.buffer.len() {
@@ -225,7 +225,7 @@ impl<'a> BitWriter<'a> {
 }
 
 impl<'a> From<&'a mut Packet> for BitWriter<'a> {
-    fn from(mut value: &'a mut Packet) -> Self {
+    fn from(value: &'a mut Packet) -> Self {
         let pos = value.get_pos();
         Self::new_at_position(value.get_inner_mut(), pos)
     }

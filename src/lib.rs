@@ -1,5 +1,6 @@
 pub mod packet;
 
+#[allow(unused)]
 macro_rules! g {
     ($buf:ident, $byte_ty:ty, $conversion:expr) => {{
         const SIZE: usize = std::mem::size_of::<$byte_ty>();
@@ -21,6 +22,7 @@ macro_rules! g {
     }};
 }
 
+#[allow(unused)]
 macro_rules! p {
     ($this:tt, $size:literal, $value:tt) => {{
         let pos = $this.write_pos;
