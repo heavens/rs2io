@@ -98,7 +98,7 @@ impl Index<RangeInclusive<usize>> for Packet {
         let start = *index.start();
         let end = *index.end();
         if end >= self.len() || start > end {
-            return &[];
+            return &[] as &[_; 0];
         }
         &self.deref()[start..=end]
     }
@@ -109,7 +109,7 @@ impl Index<RangeTo<usize>> for Packet {
 
     fn index(&self, index: RangeTo<usize>) -> &Self::Output {
         if index.end > self.len() {
-            return &[];
+            return &[] as &[_; 0];
         }
         &self.deref()[..index.end]
     }
@@ -120,7 +120,7 @@ impl Index<RangeFrom<usize>> for Packet {
 
     fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
         if index.start >= self.len() {
-            return &[];
+            return &[] as &[_; 0];
         }
         &self.deref()[index.start..]
     }
@@ -131,7 +131,7 @@ impl Index<Range<usize>> for Packet {
 
     fn index(&self, index: Range<usize>) -> &Self::Output {
         if index.end > self.len() || index.start > index.end {
-            return &[];
+            return &[] as &[_; 0];
         }
         &self.deref()[index]
     }
@@ -546,14 +546,14 @@ impl Packet {
                 v1 = v1.wrapping_add(
                     (v0 << 4 ^ v0 >> 5)
                         .wrapping_add(v0)
-                        ^ key[(sum >> 11) & 3]
+                        ^ key[((sum >> 11) & 3) as usize]
                         .wrapping_add(sum),
                 );
                 sum = sum.wrapping_add(delta);
                 v0 = v0.wrapping_add(
                     (v1 << 4 ^ v1 >> 5)
                         .wrapping_add(v1)
-                        ^ key[sum & 3]
+                        ^ key[(sum & 3) as usize]
                         .wrapping_add(sum),
                 );
             }
@@ -579,14 +579,14 @@ impl Packet {
                 v0 = v0.wrapping_sub(
                     (v1 << 4 ^ v1 >> 5)
                         .wrapping_add(v1)
-                        ^ key[sum & 3]
+                        ^ key[(sum & 3) as usize]
                         .wrapping_add(sum),
                 );
                 sum = sum.wrapping_sub(delta);
                 v1 = v1.wrapping_sub(
                     (v0 << 4 ^ v0 >> 5)
                         .wrapping_add(v0)
-                        ^ key[(sum >> 11) & 3]
+                        ^ key[((sum >> 11) & 3) as usize]
                         .wrapping_add(sum),
                 );
             }
@@ -614,14 +614,14 @@ impl Packet {
                 v1 = v1.wrapping_add(
                     (v0 << 4 ^ v0 >> 5)
                         .wrapping_add(v0)
-                        ^ key[(sum >> 11) & 3]
+                        ^ key[((sum >> 11) & 3) as usize]
                         .wrapping_add(sum),
                 );
                 sum = sum.wrapping_add(delta);
                 v0 = v0.wrapping_add(
                     (v1 << 4 ^ v1 >> 5)
                         .wrapping_add(v1)
-                        ^ key[sum & 3]
+                        ^ key[(sum & 3) as usize]
                         .wrapping_add(sum),
                 );
             }
@@ -651,14 +651,14 @@ impl Packet {
                 v0 = v0.wrapping_sub(
                     (v1 << 4 ^ v1 >> 5)
                         .wrapping_add(v1)
-                        ^ key[(sum & 3)]
+                        ^ key[(sum & 3) as usize]
                         .wrapping_add(sum),
                 );
                 sum = sum.wrapping_sub(delta);
                 v1 = v1.wrapping_sub(
                     (v0 << 4 ^ v0 >> 5)
                         .wrapping_add(v0)
-                        ^ key[(sum >> 11) & 3]
+                        ^ key[((sum >> 11) & 3) as usize]
                         .wrapping_add(sum),
                 );
             }
