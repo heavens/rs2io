@@ -367,14 +367,6 @@ impl Packet {
     }
 }
 
-impl Index<Range<usize>> for Packet {
-    type Output = [u8];
-
-    fn index(&self, index: Range<usize>) -> &Self::Output {
-        &self.bytes[index.start..index.end]
-    }
-}
-
 impl Read for Packet {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let pos = self.pos;
