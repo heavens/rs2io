@@ -3,6 +3,7 @@ use std::fmt::Debug;
 use std::io::{ErrorKind, Read, Write};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
+use std::cmp::min;
 use num_bigint::BigInt;
 
 macro_rules! g {
@@ -719,15 +720,37 @@ impl Packet {
         p!(self, slice);
     }
 
-    fn gdata(&mut self, len: usize) -> Vec<u8> {
-        let data = self.bytes[self.pos..self.pos + len].to_vec();
+    /// Reads a series of bytes from this packet returning a byte array containing the contents
+    /// read in the form of `Vec<u8>`. The contents being read starts from the current `pos`
+    /// and reads up to `len` bytes. If the amount of bytes attempting to be read exceed the
+    /// overall length of the packet (where `pos + len >= len`) then the `len` is clamped to
+    /// `bytes.len()` instead to avoid access invalid memory. The `pos` is increased based on the amount of bytes written.
+    pub fn gdata(&mut self, len: usize) -> Vec<u8> {
+        let end = min(self.pos + len, self.bytes.len());
+        let data = self.bytes[self.pos..end].to_vec();
         self.pos += len;
         data
     }
 
-    fn pdata(&mut self, data: &[u8]) {
-        self.bytes.splice(self.pos..self.pos + data.len(), data.iter().cloned());
-        self.pos += data.len();
+    /// Writes a slice to this packet, inserting the passed-in data starting at the current `pos`.
+    /// If the length of the data attempting to be written ends up exceeding the overall length
+    /// of the packet then the length is clamped to the packet length to avoid writing to invalid
+    /// memory. The `pos` is increased based on the amount of bytes written.
+    pub fn pdata(&mut self, data: &[u8]) {
+        let end = min(self.pos + data.len(), self.bytes.len());
+        self.bytes.splice(self.pos..end, data.iter().cloned());
+
+        let wrote = end - self.pos;
+        self.pos += wrote;
+    }
+
+    pub fn pdata_at(&mut self, data: &[u8], range: impl Into<RangeInclusive<usize>>) {
+        let indices = range.into();
+        let end = min(*indices.end(), self.bytes.len());
+        self.bytes.splice(self.pos..end, data.iter().cloned());
+
+        let wrote = end - self.pos;
+        self.pos += wrote;
     }
 
     /// Allocates an array capable of holding the copied contents of this writer.
