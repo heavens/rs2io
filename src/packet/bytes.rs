@@ -286,6 +286,7 @@ impl Packet {
     /// operation could not complete. The reader position is incremented based on the width of the
     /// string read.
     pub fn gjstr(&mut self) -> Result<String, PacketError> {
+        use encoding_rs::WINDOWS_1252;
         let mut contents = Vec::new();
         while let Some(next) = self.peek() {
             if next == 0 {
@@ -294,12 +295,12 @@ impl Packet {
 
             contents.push(self.g1()?);
         }
-
-        if let Ok(string) = String::from_utf8(contents) {
-            self.pos += 1;
-            Ok(string)
+        let (string, _, had_errors) = WINDOWS_1252.decode(&contents);
+        self.pos += 1;
+        if had_errors {
+            error("attempted to read bytes that are not valid cp1252 encoding.".to_string())
         } else {
-            error("attempted to read bytes that are not of valid utf-8 encoding.".to_string())
+            Ok(string.into_owned())
         }
     }
 
@@ -325,7 +326,7 @@ impl Packet {
     /// If the amount of bytes specified exceeds the amount of bytes available, thus exhausting the
     /// buffer, then the position is moved to the end of the buffer.
     pub fn skip(&mut self, bytes: usize) {
-        self.pos += cmp::min(bytes, self.available_count());
+        self.pos += min(bytes, self.available_count());
     }
 
     /// Returns the current position within the buffer.
@@ -835,3 +836,4 @@ impl<'a> PacketViewMut<'a> {
         self.slice
     }
 }
+
