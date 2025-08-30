@@ -1,10 +1,10 @@
 use crate::packet::error::{error, PacketError};
+use num_bigint::BigInt;
+use std::cmp::min;
 use std::fmt::Debug;
-use std::io::{ErrorKind, Read, Write};
+use std::io::{Read, Write};
 use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
 use std::{cmp, io};
-use std::cmp::min;
-use num_bigint::BigInt;
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
@@ -28,10 +28,7 @@ macro_rules! p {
     ($this:tt,  $value:tt) => {{
         let pos = $this.pos;
         let slice_len = $value.len();
-        let buf_len = $this.bytes.capacity();
-        if pos + slice_len >= buf_len {
-            $this.bytes.resize((slice_len + buf_len) * 2, 0u8);
-        }
+        $this.ensure_capacity(slice_len);
 
         $this.bytes.deref_mut()[pos..pos + slice_len].copy_from_slice($value);
         $this.pos += slice_len;
@@ -287,20 +284,19 @@ impl Packet {
     /// string read.
     pub fn gjstr(&mut self) -> Result<String, PacketError> {
         use encoding_rs::WINDOWS_1252;
-        let mut contents = Vec::new();
-        while let Some(next) = self.peek() {
-            if next == 0 {
-                break;
-            }
+        use memchr::memchr;
 
-            contents.push(self.g1()?);
-        }
-        let (string, _, had_errors) = WINDOWS_1252.decode(&contents);
-        self.pos += 1;
-        if had_errors {
-            error("attempted to read bytes that are not valid cp1252 encoding.".to_string())
-        } else {
+        if let Some(null_pos) = memchr(0, &self.bytes[self.pos..]) {
+            let end = self.pos + null_pos;
+            let slice = &self.bytes[self.pos..end];
+            let (string, _, had_errors) = WINDOWS_1252.decode(slice);
+            self.pos = end + 1;
+            if had_errors {
+                return error("attempted to read bytes that are not valid cp1252 encoding.".to_string());
+            }
             Ok(string.into_owned())
+        } else {
+            error("attempting to read malformed string value: missing null terminator".to_string())
         }
     }
 
@@ -371,19 +367,14 @@ impl Packet {
 
 impl Read for Packet {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let pos = self.pos;
-        let mut values = buf.len();
-        let len = values;
-        while values > 0 {
-            buf[len - values] = self.g1().map_err(|reason| {
-                io::Error::new(
-                    ErrorKind::Other,
-                    format!("unable to read bytes at current pos: {:?}", reason),
-                )
-            })?;
-            values -= 1;
+        let bytes_to_read = cmp::min(buf.len(), self.available_count());
+        if bytes_to_read == 0 {
+            return Ok(0);
         }
-        Ok(self.pos - pos)
+        let end = self.pos + bytes_to_read;
+        buf[..bytes_to_read].copy_from_slice(&self.bytes[self.pos..end]);
+        self.pos = end;
+        Ok(bytes_to_read)
     }
 }
 
@@ -685,16 +676,18 @@ impl Packet {
     pub fn grow(&mut self, new_cap: usize) {
         let old_cap = self.bytes.capacity();
         if new_cap > old_cap {
-            self.bytes.resize((old_cap + (new_cap - old_cap)) * 2, 0);
+            self.bytes.reserve(new_cap - old_cap);
         }
     }
 
     /// Verifies if enough space exists within the underlying buffer, expanding the buffer
     /// if necessary.
     fn ensure_capacity(&mut self, space_needed: usize) {
-        let cap = self.bytes.capacity();
-        if self.pos + space_needed >= cap {
-            self.grow(self.pos + space_needed);
+        let remaining_cap = self.bytes.capacity() - self.pos;
+        if space_needed > remaining_cap {
+            let required_cap = self.pos + space_needed;
+            let new_cap = self.bytes.capacity().max(16).max(required_cap).next_power_of_two();
+            self.bytes.reserve(new_cap - self.bytes.capacity());
         }
     }
 
@@ -738,11 +731,12 @@ impl Packet {
     /// of the packet then the length is clamped to the packet length to avoid writing to invalid
     /// memory. The `pos` is increased based on the amount of bytes written.
     pub fn pdata(&mut self, data: &[u8]) {
-        let end = min(self.pos + data.len(), self.bytes.len());
-        self.bytes.splice(self.pos..end, data.iter().cloned());
-
-        let wrote = end - self.pos;
-        self.pos += wrote;
+        let bytes_to_write = min(data.len(), self.available_count());
+        if bytes_to_write > 0 {
+            let end = self.pos + bytes_to_write;
+            self.bytes[self.pos..end].copy_from_slice(&data[..bytes_to_write]);
+            self.pos += bytes_to_write;
+        }
     }
 
     pub fn pdata_at(&mut self, data: &[u8], range: impl Into<RangeInclusive<usize>>) {

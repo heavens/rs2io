@@ -31,3 +31,4 @@ version = "1.0.38"
 [dependencies]
 encoding_rs = "0.8"
 num-bigint = "0.4"
+memchr = "2.7.5"
