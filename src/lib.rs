@@ -72,7 +72,7 @@ mod test {
 
     #[test]
     fn test_alt1_read() {
-        let mut packet = Packet::new(1);
+        let mut packet = Packet::new(2);
         packet.p2_alt2(10);
         packet.set_pos(0);
         println!("{:?}", packet);

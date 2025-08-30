@@ -33,6 +33,7 @@ impl<'a> BitReader<'a> {
         }
     }
 
+    #[inline]
     pub fn read_bits(&mut self, bit_count: usize) -> Result<usize, PacketError> {
         if bit_count > 32 {
             return Err(PacketError::Io(io::Error::new(
@@ -99,28 +100,19 @@ impl<'a> BitReader<'a> {
     }
 
     pub fn skip_bits(&mut self, bit_count: usize) -> Result<(), PacketError> {
-        let mut bits_to_skip = bit_count;
+        let total_bits_in_buffer = self.buffer.len() * 8;
+        let current_total_bit_pos = self.byte_pos * 8 + self.bit_pos;
 
-        while bits_to_skip > 0 {
-            let bits_remaining_in_byte = 8 - self.bit_pos;
-            let bits_skip_now = std::cmp::min(bits_remaining_in_byte, bits_to_skip);
-
-            self.bit_pos += bits_skip_now;
-
-            if self.bit_pos == 8 {
-                self.byte_pos += 1;
-                self.bit_pos = 0;
-
-                if self.byte_pos > self.buffer.len() {
-                    return Err(PacketError::Io(io::Error::new(
-                        io::ErrorKind::UnexpectedEof,
-                        "End of buffer reached while skipping",
-                    )));
-                }
-            }
-
-            bits_to_skip -= bits_skip_now;
+        if current_total_bit_pos + bit_count > total_bits_in_buffer {
+            return Err(PacketError::Io(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "Unexpected eof while skipping bits. (bit_count: {}, total_bits_in_buffer: {})",
+            )));
         }
+
+        let new_total_bit_pos = current_total_bit_pos + bit_count;
+        self.byte_pos = new_total_bit_pos / 8;
+        self.bit_pos = new_total_bit_pos % 8;
 
         Ok(())
     }
@@ -157,6 +149,7 @@ impl<'a> BitWriter<'a> {
         }
     }
 
+    #[inline]
     pub fn write_bits(&mut self, value: u32, bit_count: usize) -> Result<(), PacketError> {
         if bit_count > 32 {
             return Err(PacketError::Io(io::Error::new(
@@ -168,6 +161,11 @@ impl<'a> BitWriter<'a> {
         if bit_count == 0 {
             return Ok(());
         }
+
+        let bits_in_current_byte = self.bit_pos;
+        let bits_needed = bit_count;
+        let bytes_needed = (bits_in_current_byte + bits_needed + 7) / 8;
+        self.buffer.reserve(bytes_needed);
 
         let max_value = if bit_count == 32 { 0xFFFFFFFF } else { (1 << bit_count) - 1 };
         let masked_value = value & max_value;
