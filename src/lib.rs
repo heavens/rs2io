@@ -1,7 +1,6 @@
 pub mod packet;
 #[cfg(test)]
 mod test {
-    use io_macro::Protocol;
     use crate::packet::bits::{BitReader, BitWriter};
     use crate::packet::bytes::Packet;
     use crate::packet::error::PacketError;
