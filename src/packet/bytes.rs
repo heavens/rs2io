@@ -8,17 +8,19 @@ use std::{cmp, io};
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
-        let cap = $this.capacity();
-        let pos = $this.pos;
-        if pos + $value_size > cap {
+        if $this.pos + $value_size > $this.len {
             return error(format!(
-                "expected pos + size_in_bytes < limit. (pos: {}, cap: {})",
-                pos, cap
+                "Not enough data in packet. Needed {}, have {}. (pos: {}, len: {})",
+                $value_size,
+                $this.available_count(),
+                $this.pos,
+                $this.len
             ));
         }
 
-        let slice =
-            unsafe { *($this.bytes[pos..pos + $value_size].as_ptr() as *const [_; $value_size]) };
+        let slice = unsafe {
+            *($this.bytes[$this.pos..$this.pos + $value_size].as_ptr() as *const [_; $value_size])
+        };
         $this.pos += $value_size;
         Ok($value_expr(slice))
     }};
@@ -30,8 +32,11 @@ macro_rules! p {
         let slice_len = $value.len();
         $this.ensure_capacity(slice_len);
 
-        $this.bytes.deref_mut()[pos..pos + slice_len].copy_from_slice($value);
+        $this.bytes[pos..pos + slice_len].copy_from_slice($value);
         $this.pos += slice_len;
+        if $this.pos > $this.len {
+            $this.len = $this.pos;
+        }
     }};
 }
 
@@ -39,19 +44,25 @@ macro_rules! p {
 pub struct Packet {
     bytes: Vec<u8>,
     pos: usize,
+    len: usize,
 }
 
 impl Packet {
     /// Creates a new byte buffer whose contents are initialized with 0.
     pub fn new(capacity: usize) -> Self {
         let buf = vec![0u8; capacity];
-        Self { bytes: buf, pos: 0 }
+        Self {
+            bytes: buf,
+            pos: 0,
+            len: 0,
+        }
     }
 
     pub fn empty() -> Self {
         Self {
-            bytes: vec![0u8; 0],
+            bytes: Vec::with_capacity(0),
             pos: 0,
+            len: 0,
         }
     }
 
@@ -62,6 +73,7 @@ impl Packet {
     /// Clears the buffer by setting both the read and write position to 0.
     pub fn clear(&mut self) {
         self.pos = 0;
+        self.len = 0;
     }
 }
 
@@ -69,6 +81,7 @@ impl From<Vec<u8>> for Packet {
     fn from(value: Vec<u8>) -> Self {
         Packet {
             pos: 0,
+            len: value.len(),
             bytes: value,
         }
     }
@@ -78,6 +91,7 @@ impl From<&[u8]> for Packet {
     fn from(value: &[u8]) -> Self {
         Packet {
             pos: 0,
+            len: value.len(),
             bytes: value.to_vec(),
         }
     }
@@ -139,13 +153,13 @@ impl Deref for Packet {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &self.bytes
+        &self.bytes[..self.len]
     }
 }
 
 impl DerefMut for Packet {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bytes
+        &mut self.bytes[..self.len]
     }
 }
 
@@ -292,7 +306,9 @@ impl Packet {
             let (string, _, had_errors) = WINDOWS_1252.decode(slice);
             self.pos = end + 1;
             if had_errors {
-                return error("attempted to read bytes that are not valid cp1252 encoding.".to_string());
+                return error(
+                    "attempted to read bytes that are not valid cp1252 encoding.".to_string(),
+                );
             }
             Ok(string.into_owned())
         } else {
@@ -302,8 +318,11 @@ impl Packet {
 
     /// Sets the position at the specified index within the internal buffer.
     pub fn set_pos(&mut self, index: usize) -> Result<(), PacketError> {
-        if index > self.capacity() {
-            return error(format!("attempted to set cursor at invalid position. expected index < len (index: {}, len: {})", index, self.bytes.len()));
+        if index > self.len {
+            return error(format!(
+                "Invalid position. Index {} is > len {}",
+                index, self.len
+            ));
         }
         self.pos = index;
         Ok(())
@@ -356,7 +375,7 @@ impl Packet {
     /// failure to obtain the amount of bytes, or if overflow were to occur, then a value of
     /// `0` is returned.
     pub fn available_count(&self) -> usize {
-        self.available().unwrap_or(0)
+        self.len.saturating_sub(self.pos)
     }
 
     /// Returns `true` if at least `count` bytes are remaining in the reader.
@@ -399,8 +418,9 @@ impl Packet {
 
     pub fn p1_alt1(&mut self, value: u8) {
         self.ensure_capacity(1);
+        self.bytes[self.pos] = value + 128;
         self.pos += 1;
-        self.bytes[self.pos - 1] = value + 128;
+        if self.pos > self.len { self.len = self.pos; }
     }
 
     pub fn p1_alt2(&mut self, value: u8) {
@@ -430,7 +450,7 @@ impl Packet {
     /// Writes an unsigned short value into the buffer, incrementing the position by `2`.
     pub fn p2(&mut self, value: u16) {
         let slice = &u16::to_be_bytes(value);
-        p!(self, slice)
+        self.write_at_cursor(slice);
     }
 
     pub fn p2_alt1(&mut self, value: u16) {
@@ -456,10 +476,12 @@ impl Packet {
 
     pub fn p3(&mut self, value: u32) {
         self.ensure_capacity(3);
+        let pos = self.pos;
+        self.bytes[pos] = (value >> 16) as u8;
+        self.bytes[pos + 1] = (value >> 8) as u8;
+        self.bytes[pos + 2] = value as u8;
         self.pos += 3;
-        self.bytes[self.pos - 3] = (value >> 16) as u8;
-        self.bytes[self.pos - 2] = (value >> 8) as u8;
-        self.bytes[self.pos - 1] = value as u8;
+        if self.pos > self.len { self.len = self.pos; }
     }
 
     /// Writes a signed int value into the buffer, incrementing the position by `4`.
@@ -484,7 +506,6 @@ impl Packet {
     /// `value.len() + 1`.
     pub fn pjstr(&mut self, value: impl AsRef<str>) {
         let bytes: &[u8] = value.as_ref().as_bytes();
-        self.ensure_capacity(bytes.len() + 1);
         p!(self, bytes);
         self.p1(0);
     }
@@ -529,17 +550,13 @@ impl Packet {
 
             for _ in 0..32 {
                 v1 = v1.wrapping_add(
-                    (v0 << 4 ^ v0 >> 5)
-                        .wrapping_add(v0)
-                        ^ key[((sum >> 11) & 3) as usize]
-                        .wrapping_add(sum),
+                    (v0 << 4 ^ v0 >> 5).wrapping_add(v0)
+                        ^ key[((sum >> 11) & 3) as usize].wrapping_add(sum),
                 );
                 sum = sum.wrapping_add(delta);
                 v0 = v0.wrapping_add(
-                    (v1 << 4 ^ v1 >> 5)
-                        .wrapping_add(v1)
-                        ^ key[(sum & 3) as usize]
-                        .wrapping_add(sum),
+                    (v1 << 4 ^ v1 >> 5).wrapping_add(v1)
+                        ^ key[(sum & 3) as usize].wrapping_add(sum),
                 );
             }
 
@@ -562,17 +579,13 @@ impl Packet {
 
             for _ in 0..32 {
                 v0 = v0.wrapping_sub(
-                    (v1 << 4 ^ v1 >> 5)
-                        .wrapping_add(v1)
-                        ^ key[(sum & 3) as usize]
-                        .wrapping_add(sum),
+                    (v1 << 4 ^ v1 >> 5).wrapping_add(v1)
+                        ^ key[(sum & 3) as usize].wrapping_add(sum),
                 );
                 sum = sum.wrapping_sub(delta);
                 v1 = v1.wrapping_sub(
-                    (v0 << 4 ^ v0 >> 5)
-                        .wrapping_add(v0)
-                        ^ key[((sum >> 11) & 3) as usize]
-                        .wrapping_add(sum),
+                    (v0 << 4 ^ v0 >> 5).wrapping_add(v0)
+                        ^ key[((sum >> 11) & 3) as usize].wrapping_add(sum),
                 );
             }
 
@@ -583,8 +596,12 @@ impl Packet {
         Ok(())
     }
 
-
-    pub fn tiny_key_encrypt_range(&mut self, key: &[i32; 4], start: usize, end: usize) -> Result<(), PacketError> {
+    pub fn tiny_key_encrypt_range(
+        &mut self,
+        key: &[i32; 4],
+        start: usize,
+        end: usize,
+    ) -> Result<(), PacketError> {
         let original_pos = self.pos;
         self.pos = start;
 
@@ -597,17 +614,13 @@ impl Packet {
 
             for _ in 0..32 {
                 v1 = v1.wrapping_add(
-                    (v0 << 4 ^ v0 >> 5)
-                        .wrapping_add(v0)
-                        ^ key[((sum >> 11) & 3) as usize]
-                        .wrapping_add(sum),
+                    (v0 << 4 ^ v0 >> 5).wrapping_add(v0)
+                        ^ key[((sum >> 11) & 3) as usize].wrapping_add(sum),
                 );
                 sum = sum.wrapping_add(delta);
                 v0 = v0.wrapping_add(
-                    (v1 << 4 ^ v1 >> 5)
-                        .wrapping_add(v1)
-                        ^ key[(sum & 3) as usize]
-                        .wrapping_add(sum),
+                    (v1 << 4 ^ v1 >> 5).wrapping_add(v1)
+                        ^ key[(sum & 3) as usize].wrapping_add(sum),
                 );
             }
 
@@ -620,7 +633,12 @@ impl Packet {
         Ok(())
     }
 
-    pub fn tiny_key_decrypt_range(&mut self, key: &[i32; 4], start: usize, end: usize) -> Result<(), PacketError> {
+    pub fn tiny_key_decrypt_range(
+        &mut self,
+        key: &[i32; 4],
+        start: usize,
+        end: usize,
+    ) -> Result<(), PacketError> {
         let original_pos = self.pos;
         self.pos = start;
 
@@ -634,17 +652,13 @@ impl Packet {
 
             for _ in 0..32 {
                 v0 = v0.wrapping_sub(
-                    (v1 << 4 ^ v1 >> 5)
-                        .wrapping_add(v1)
-                        ^ key[(sum & 3) as usize]
-                        .wrapping_add(sum),
+                    (v1 << 4 ^ v1 >> 5).wrapping_add(v1)
+                        ^ key[(sum & 3) as usize].wrapping_add(sum),
                 );
                 sum = sum.wrapping_sub(delta);
                 v1 = v1.wrapping_sub(
-                    (v0 << 4 ^ v0 >> 5)
-                        .wrapping_add(v0)
-                        ^ key[((sum >> 11) & 3) as usize]
-                        .wrapping_add(sum),
+                    (v0 << 4 ^ v0 >> 5).wrapping_add(v0)
+                        ^ key[((sum >> 11) & 3) as usize].wrapping_add(sum),
                 );
             }
 
@@ -671,6 +685,20 @@ impl Packet {
         self.pdata(&encrypted);
     }
 
+    fn write_at_cursor(&mut self, value: &[u8]) {
+        let slice_len = value.len();
+        if self.bytes.capacity() < self.pos + slice_len {
+            self.bytes.resize(self.pos + slice_len, 0);
+        }
+
+        self.bytes[self.pos..self.pos + slice_len].copy_from_slice(value);
+        self.pos += slice_len;
+
+        if self.pos > self.len {
+            self.len = self.pos;
+        }
+    }
+
     /// Increases the capacity of the underlying buffer to be capable of storing at least `new_cap`
     /// amount of items.
     pub fn grow(&mut self, new_cap: usize) {
@@ -683,11 +711,9 @@ impl Packet {
     /// Verifies if enough space exists within the underlying buffer, expanding the buffer
     /// if necessary.
     fn ensure_capacity(&mut self, space_needed: usize) {
-        let remaining_cap = self.bytes.capacity() - self.pos;
-        if space_needed > remaining_cap {
-            let required_cap = self.pos + space_needed;
-            let new_cap = self.bytes.capacity().max(16).max(required_cap).next_power_of_two();
-            self.bytes.reserve(new_cap - self.bytes.capacity());
+        let required_len = self.pos + space_needed;
+        if required_len > self.bytes.len() {
+            self.bytes.resize(required_len, 0);
         }
     }
 
@@ -711,7 +737,23 @@ impl Packet {
 
     /// Writes a raw byte slice to the buffer. The position is incremented based on the len of the slice written.
     pub fn put_slice(&mut self, slice: &[u8]) {
-        p!(self, slice);
+        self.bytes.extend_from_slice(slice);
+        self.len = self.bytes.len();
+    }
+
+    pub fn compact(&mut self) {
+        if self.pos == 0 {
+            return;
+        }
+        if self.pos >= self.len {
+            self.len = 0;
+            self.pos = 0;
+            return;
+        }
+
+        self.bytes.copy_within(self.pos..self.len, 0);
+        self.len -= self.pos;
+        self.pos = 0;
     }
 
     /// Reads a series of bytes from this packet returning a byte array containing the contents
@@ -830,4 +872,3 @@ impl<'a> PacketViewMut<'a> {
         self.slice
     }
 }
-
