@@ -1,4 +1,7 @@
 pub mod packet;
+#[cfg(feature = "macros")]
+use rs2_prot_macro::Protocol;
+
 #[cfg(test)]
 mod test {
     use crate::packet::bits::{BitReader, BitWriter};
