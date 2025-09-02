@@ -1,0 +1,17 @@
+[package]
+name = "rs2-prot-macro"
+version = "0.1.0"
+edition = "2021"
+description = "Macro utilities for generating protocol-specific IO code for the rs2io crate."
+rust-version = "1.85.0"
+repository = "https://github.com/heavens"
+license = "MIT OR Apache-2.0"
+authors = ["Mack <https://github.com/heavens>"]
+keywords = ["IO", "Bytes", "RuneScape", "GameDev", "Games"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "1.0", features = ["full"] }
+quote = "1.0"

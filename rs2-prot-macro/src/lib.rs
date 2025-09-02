@@ -3,7 +3,6 @@ use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::{parse_macro_input, Data, DeriveInput, Expr, Token};
 
-/// A temporary struct to parse `key = value` pairs from inside the attribute.
 struct PacketAttribute {
     key: syn::Ident,
     value: Expr,
@@ -28,10 +27,8 @@ pub fn protocol_derive(input: TokenStream) -> TokenStream {
         _ => panic!("Protocol derive macro can only be used on enums"),
     };
 
-    // --- Generate match arms for `opcode()` ---
     let opcode_matches = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        // Find the opcode from the `#[packet(...)]` attribute.
         let (opcode, _) = parse_packet_attributes(variant);
 
         let opcode_expr = opcode
@@ -42,10 +39,8 @@ pub fn protocol_derive(input: TokenStream) -> TokenStream {
         }
     });
 
-    // --- Generate match arms for `size()` ---
     let size_matches = variants.iter().map(|variant| {
         let variant_name = &variant.ident;
-        // Find the size from the `#[packet(...)]` attribute.
         let (_, size) = parse_packet_attributes(variant);
 
         let size_expr = size
@@ -88,7 +83,6 @@ fn parse_packet_attributes(variant: &syn::Variant) -> (Option<Expr>, Option<Expr
         .find(|attr| attr.path.is_ident("packet"))
         .unwrap_or_else(|| panic!("Variant {} is missing the required #[packet(...)] attribute", variant.ident));
 
-    // Parse the comma-separated `key = value` pairs inside the attribute's parentheses.
     let parser = |input: ParseStream| {
         syn::punctuated::Punctuated::<PacketAttribute, Token![,]>::parse_terminated(input)
     };
