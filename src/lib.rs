@@ -1,10 +1,10 @@
 pub mod packet;
-
 #[cfg(test)]
 mod test {
+    use io_macro::Protocol;
+    use crate::packet::bits::{BitReader, BitWriter};
     use crate::packet::bytes::Packet;
     use crate::packet::error::PacketError;
-    use crate::packet::bits::{BitReader, BitWriter};
 
     #[test]
     fn test_read_string() -> Result<(), PacketError> {
@@ -69,5 +69,29 @@ mod test {
             assert_eq!(reader.read_bits(1).unwrap(), 0);
             assert_eq!(reader.read_bits(16).unwrap(), 2000);
         }
+    }
+
+    #[cfg(feature = "macros")]
+    #[test]
+    fn test_macro() {
+        #[derive(Debug, Protocol)]
+        pub enum ClientProt {
+            #[packet(opcode = 69, size = 0)]
+            MapBuildComplete,
+
+            #[packet(opcode = 77, size = 6)]
+            EventMouseClick,
+
+            // Now works correctly with negative numbers and combined attributes
+            #[packet(opcode = 1, size = -1)]
+            EventKeyboard,
+
+            #[packet(opcode = 72, size = 4)]
+            DetectModifiedClient,
+        }
+
+        assert_eq!(ClientProt::MapBuildComplete.opcode(), 69, "Must be equal to 1");
+        assert_eq!(ClientProt::EventMouseClick.opcode(), 77, "Must be equal to 2");
+        assert_eq!(ClientProt::DetectModifiedClient.opcode(), 72, "Must be equal to 3");
     }
 }

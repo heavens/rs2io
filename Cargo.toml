@@ -2,13 +2,16 @@
 name = "rs2io"
 version = "0.3.2"
 edition = "2021"
-exclude = ["macro_utils", "io_macro"]
 authors = ["Mack <https://github.com/heavens>"]
 description = "Types and utilities for processing io with a design heavily focused around the custom protocols used by the popular MMORPG Runescape."
 repository = "https://github.com/heavens"
 license = "MIT OR Apache-2.0"
 keywords = ["IO", "Bytes", "RuneScape", "GameDev", "Games"]
 rust-version = "1.80.0"
+
+[features]
+default = []
+macros = ["io_macro"]
 
 [workspace]
 resolver = "2"
@@ -32,3 +35,4 @@ version = "1.0.38"
 encoding_rs = "0.8"
 num-bigint = "0.4"
 memchr = "2.7.5"
+io_macro = { path = "./io_macro", optional = true }
