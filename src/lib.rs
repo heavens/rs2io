@@ -1,6 +1,6 @@
 pub mod packet;
 #[cfg(feature = "macros")]
-use rs2_prot_macro::Protocol;
+pub use rs2_prot_macro::Protocol;
 
 #[cfg(test)]
 mod test {
