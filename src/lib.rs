@@ -45,25 +45,26 @@ mod test {
         println!("{:?}", value);
         // bits.writ(&mut packet);
     }
-
     #[test]
     fn test_bit_write_read() {
-        // Write some data
         let mut buffer = Packet::new(100);
         buffer.p1(4);
         buffer.p2(100);
+
         {
             let mut writer = BitWriter::from(&mut buffer);
             writer.write_bits(2, 3).unwrap();
             writer.write_bits(100, 8).unwrap(); // crossing byte boundary
             writer.write_bits(0, 1).unwrap();
             writer.write_bits(2000, 16).unwrap();
+
         }
 
-        println!("{:?}", buffer);
-        buffer.set_pos(0);
-        println!("{:?}", buffer.g1());
-        println!("{:?}", buffer.g2());
+        buffer.set_pos(0).unwrap();
+
+        assert_eq!(buffer.g1().unwrap(), 4);
+        assert_eq!(buffer.g2().unwrap(), 100);
+
         {
             let mut reader = BitReader::from(&buffer);
             assert_eq!(reader.read_bits(3).unwrap(), 2);

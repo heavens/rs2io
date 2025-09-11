@@ -118,34 +118,24 @@ impl<'a> BitReader<'a> {
     }
 }
 
-impl<'a> From<&'a Packet> for BitReader<'a> {
-    fn from(value: &'a Packet) -> Self {
-        Self::new_at_position(value, value.get_pos())
-    }
-}
-
 #[derive(Debug)]
 pub struct BitWriter<'a> {
-    buffer: &'a mut Vec<u8>,
-    byte_pos: usize,
+    packet: &'a mut Packet,
     bit_pos: usize,
 }
 
 impl<'a> BitWriter<'a> {
-    pub fn new(buffer: &'a mut Vec<u8>) -> Self {
-        let byte_pos = buffer.len();
+    pub fn new(buffer: &'a mut Packet) -> Self {
         Self {
-            buffer,
-            byte_pos,
+            packet: buffer,
             bit_pos: 0,
         }
     }
 
-    pub fn new_at_position(buffer: &'a mut Vec<u8>, byte_pos: usize) -> Self {
+    pub fn new_at_position(buffer: &'a mut Packet, byte_pos: usize) -> Self {
         Self {
-            buffer,
-            byte_pos,
-            bit_pos: 0,
+            packet: buffer,
+            bit_pos: byte_pos,
         }
     }
 
@@ -162,69 +152,73 @@ impl<'a> BitWriter<'a> {
             return Ok(());
         }
 
-        let bits_in_current_byte = self.bit_pos;
-        let bits_needed = bit_count;
-        let bytes_needed = (bits_in_current_byte + bits_needed + 7) / 8;
-        self.buffer.reserve(bytes_needed);
+        let required_len = self.packet.pos + (self.bit_pos + bit_count + 7) / 8;
+        if required_len > self.packet.bytes.len() {
+            self.packet.bytes.resize(required_len, 0);
+        }
 
-        let max_value = if bit_count == 32 { 0xFFFFFFFF } else { (1 << bit_count) - 1 };
+        let max_value = if bit_count == 32 { u32::MAX } else { (1 << bit_count) - 1 };
         let masked_value = value & max_value;
 
         let mut bits_remaining = bit_count;
-        let bits_value = masked_value;
 
         while bits_remaining > 0 {
-            if self.byte_pos >= self.buffer.len() {
-                self.buffer.push(0);
-            }
-
             let bits_available_in_byte = 8 - self.bit_pos;
             let bits_to_write = std::cmp::min(bits_available_in_byte, bits_remaining);
 
-            let shift = bits_remaining - bits_to_write;
-            let mask = BIT_MASKS[bits_to_write];
-            let bits = (bits_value >> shift) & mask;
+            let value_shift = bits_remaining - bits_to_write;
+            let bits_from_value = (masked_value >> value_shift) & BIT_MASKS[bits_to_write];
 
-            let bit_shift = bits_available_in_byte - bits_to_write;
-            let byte_mask = (bits as u8) << bit_shift;
+            let clear_mask_shift = bits_available_in_byte - bits_to_write;
+            let clear_mask = !((BIT_MASKS[bits_to_write] as u8) << clear_mask_shift);
 
-            self.buffer[self.byte_pos] |= byte_mask;
+            self.packet.bytes[self.packet.pos] &= clear_mask;
+
+            let set_mask = (bits_from_value as u8) << clear_mask_shift;
+            self.packet.bytes[self.packet.pos] |= set_mask;
 
             self.bit_pos += bits_to_write;
             bits_remaining -= bits_to_write;
 
             if self.bit_pos == 8 {
-                self.byte_pos += 1;
                 self.bit_pos = 0;
+                self.packet.pos += 1;
             }
         }
 
         Ok(())
     }
 
-    pub fn flush(&mut self) {
-        if self.bit_pos > 0 {
-            self.byte_pos += 1;
-            self.bit_pos = 0;
-        }
-    }
 
     pub fn get_bits_used(&self) -> usize {
         self.bit_pos
     }
 
-    pub fn get_byte_pos(&self) -> usize {
-        self.byte_pos
-    }
+}
 
-    pub fn get_buffer(&self) -> &Vec<u8> {
-        self.buffer
+impl<'a> Drop for BitWriter<'a> {
+    fn drop(&mut self) {
+        if self.bit_pos > 0 {
+            self.packet.pos += 1;
+        }
+
+        if self.packet.pos > self.packet.len {
+            self.packet.len = self.packet.pos;
+        }
     }
 }
 
 impl<'a> From<&'a mut Packet> for BitWriter<'a> {
     fn from(value: &'a mut Packet) -> Self {
-        let pos = value.get_pos();
-        Self::new_at_position(value.get_inner_mut(), pos)
+        Self {
+            packet: value,
+            bit_pos: 0,
+        }
+    }
+}
+
+impl<'a> From<&'a Packet> for BitReader<'a> {
+    fn from(value: &'a Packet) -> Self {
+        Self::new(value.as_ref())
     }
 }

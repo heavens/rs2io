@@ -3,8 +3,8 @@ use num_bigint::BigInt;
 use std::cmp::min;
 use std::fmt::Debug;
 use std::io::{Read, Write};
-use std::ops::{Deref, DerefMut, Index, Range, RangeFrom, RangeInclusive, RangeTo};
-use std::{cmp, io};
+use std::ops::{Range, RangeInclusive};
+use std::io;
 
 macro_rules! g {
     ($this:ident, $value_size:literal, $value_expr:expr) => {{
@@ -42,9 +42,9 @@ macro_rules! p {
 
 #[derive(Clone)]
 pub struct Packet {
-    bytes: Vec<u8>,
-    pos: usize,
-    len: usize,
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) pos: usize,
+    pub(crate) len: usize,
 }
 
 impl Packet {
@@ -68,6 +68,20 @@ impl Packet {
 
     pub fn get_inner_mut(&mut self) -> &mut Vec<u8> {
         &mut self.bytes
+    }
+
+    pub fn get(&self, range: Range<usize>) -> Option<&[u8]> {
+        self.slice_remaining().get(range)
+    }
+
+    /// Returns a slice of the remaining readable bytes.
+    pub fn slice_remaining(&self) -> &[u8] {
+        &self.bytes[self.pos..self.len]
+    }
+
+    /// Returns a mutable slice of the entire written buffer.
+    pub fn as_mut_slice_all(&mut self) -> &mut [u8] {
+        &mut self.bytes[self.pos..self.len]
     }
 
     /// Clears the buffer by setting both the read and write position to 0.
@@ -103,69 +117,9 @@ impl<const N: usize> From<&[u8; N]> for Packet {
     }
 }
 
-impl Index<RangeInclusive<usize>> for Packet {
-    type Output = [u8];
-
-    fn index(&self, index: RangeInclusive<usize>) -> &Self::Output {
-        let start = *index.start();
-        let end = *index.end();
-        if end >= self.len() || start > end {
-            return &[] as &[_; 0];
-        }
-        &self.deref()[start..=end]
-    }
-}
-
-impl Index<RangeTo<usize>> for Packet {
-    type Output = [u8];
-
-    fn index(&self, index: RangeTo<usize>) -> &Self::Output {
-        if index.end > self.len() {
-            return &[] as &[_; 0];
-        }
-        &self.deref()[..index.end]
-    }
-}
-
-impl Index<RangeFrom<usize>> for Packet {
-    type Output = [u8];
-
-    fn index(&self, index: RangeFrom<usize>) -> &Self::Output {
-        if index.start >= self.len() {
-            return &[] as &[_; 0];
-        }
-        &self.deref()[index.start..]
-    }
-}
-
-impl Index<Range<usize>> for Packet {
-    type Output = [u8];
-
-    fn index(&self, index: Range<usize>) -> &Self::Output {
-        if index.end > self.len() || index.start > index.end {
-            return &[] as &[_; 0];
-        }
-        &self.deref()[index]
-    }
-}
-
-impl Deref for Packet {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        &self.bytes[..self.len]
-    }
-}
-
-impl DerefMut for Packet {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.bytes[..self.len]
-    }
-}
-
 impl AsRef<[u8]> for Packet {
     fn as_ref(&self) -> &[u8] {
-        &self.bytes
+        &self.bytes[self.pos..self.len]
     }
 }
 
@@ -386,7 +340,7 @@ impl Packet {
 
 impl Read for Packet {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let bytes_to_read = cmp::min(buf.len(), self.available_count());
+        let bytes_to_read = min(buf.len(), self.available_count());
         if bytes_to_read == 0 {
             return Ok(0);
         }
@@ -732,11 +686,12 @@ impl Packet {
     /// Returns a slice of the packet's contents returning a partial view over the contents of this
     /// packet starting from the current `pos` until the end of the byte buffer.
     pub fn get_slice(&self) -> &[u8] {
-        &self.bytes[self.pos..]
+        &self.bytes[self.pos..self.len]
     }
 
-    /// Writes a raw byte slice to the buffer. The position is incremented based on the len of the slice written.
-    pub fn put_slice(&mut self, slice: &[u8]) {
+    /// Appends a slice onto the end of the packet's contents. The `pos` of the cursor remains
+    /// the same.
+    pub fn append_slice(&mut self, slice: &[u8]) {
         self.bytes.extend_from_slice(slice);
         self.len = self.bytes.len();
     }
@@ -760,7 +715,8 @@ impl Packet {
     /// read in the form of `Vec<u8>`. The contents being read starts from the current `pos`
     /// and reads up to `len` bytes. If the amount of bytes attempting to be read exceed the
     /// overall length of the packet (where `pos + len >= len`) then the `len` is clamped to
-    /// `bytes.len()` instead to avoid access invalid memory. The `pos` is increased based on the amount of bytes written.
+    /// `bytes.len()` instead to avoid access invalid memory. The `pos` is increased based on the
+    /// amount of bytes written.
     pub fn gdata(&mut self, len: usize) -> Vec<u8> {
         let end = min(self.pos + len, self.bytes.len());
         let data = self.bytes[self.pos..end].to_vec();
@@ -792,83 +748,26 @@ impl Packet {
 
     /// Allocates an array capable of holding the copied contents of this writer.
     pub fn to_vec(&self) -> Vec<u8> {
-        self.bytes.to_vec()
+        self.bytes[self.pos..self.len].to_vec()
+    }
+
+    pub fn set_len(&mut self, len: usize) {
+        if len > self.bytes.len() {
+            self.bytes.resize(len, 0);
+        }
+        self.len = len;
     }
 }
 
 impl Write for Packet {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.put_slice(&buf);
+        for byte in buf {
+            self.p1(*byte);
+        }
         Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
-    }
-}
-
-pub struct PacketView<'a> {
-    slice: &'a [u8],
-}
-
-pub struct PacketViewMut<'a> {
-    slice: &'a mut [u8],
-}
-
-impl<'a> PacketView<'a> {
-    pub fn new(packet: &'a Packet, range: impl Into<Range<usize>>) -> Option<Self> {
-        let range = range.into();
-        if range.end > packet.len() || range.start > range.end {
-            None
-        } else {
-            Some(Self {
-                slice: &packet[range],
-            })
-        }
-    }
-
-    pub fn from_inclusive(packet: &'a Packet, range: RangeInclusive<usize>) -> Option<Self> {
-        let start = *range.start();
-        let end = *range.end();
-        if start > end || end >= packet.len() {
-            None
-        } else {
-            Some(Self {
-                slice: &packet[start..=end],
-            })
-        }
-    }
-
-    pub fn as_slice(&self) -> &'a [u8] {
-        self.slice
-    }
-}
-
-impl<'a> PacketViewMut<'a> {
-    pub fn new(packet: &'a mut Packet, range: impl Into<Range<usize>>) -> Option<Self> {
-        let range = range.into();
-        if range.end > packet.len() || range.start > range.end {
-            None
-        } else {
-            Some(Self {
-                slice: &mut packet.deref_mut()[range],
-            })
-        }
-    }
-
-    pub fn from_inclusive(packet: &'a mut Packet, range: RangeInclusive<usize>) -> Option<Self> {
-        let start = *range.start();
-        let end = *range.end();
-        if start > end || end >= packet.len() {
-            None
-        } else {
-            Some(Self {
-                slice: &mut packet.deref_mut()[start..=end],
-            })
-        }
-    }
-
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.slice
     }
 }
